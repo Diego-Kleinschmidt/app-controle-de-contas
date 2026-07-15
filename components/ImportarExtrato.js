@@ -45,7 +45,14 @@ function chaveDedup(descricao, valor, data) {
   return `${String(data).slice(0, 10)}|${Number(valor).toFixed(2)}|${desc}`;
 }
 
-export default function ImportarExtrato({ mesReferencia, existentes, onSalvo, onCancelar }) {
+export default function ImportarExtrato({
+  mesReferencia,
+  existentes,
+  perfis = [],
+  usuarioId,
+  onSalvo,
+  onCancelar,
+}) {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState(null);
   const [itens, setItens] = useState(null); // null = ainda não leu
@@ -66,11 +73,12 @@ export default function ImportarExtrato({ mesReferencia, existentes, onSalvo, on
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
 
+      const respPadrao = usuarioId ?? perfis[0]?.id ?? "";
       const lidos = (dados.lancamentos || []).map((l) => ({
         descricao: l.descricao || "",
         valor: Math.abs(Number(l.valor)) || 0,
         data: (l.data || hojeISO()).slice(0, 10),
-        responsavel: "diego",
+        responsavel_id: respPadrao,
         reembolso: Boolean(l.reembolso),
       }));
 
@@ -118,7 +126,7 @@ export default function ImportarExtrato({ mesReferencia, existentes, onSalvo, on
         // Reembolso entra como valor NEGATIVO (abate das contas do mês)
         valor: it.reembolso ? -it.valor : it.valor,
         data: it.data,
-        responsavel: it.responsavel,
+        responsavel_id: it.responsavel_id || null,
       }));
 
     if (escolhidos.length === 0) {
@@ -243,12 +251,15 @@ export default function ImportarExtrato({ mesReferencia, existentes, onSalvo, on
                     className={campo}
                   />
                   <select
-                    value={it.responsavel}
-                    onChange={(e) => atualizar(i, "responsavel", e.target.value)}
+                    value={it.responsavel_id}
+                    onChange={(e) => atualizar(i, "responsavel_id", e.target.value)}
                     className={campo}
                   >
-                    <option value="diego">Diego</option>
-                    <option value="mae">Mãe</option>
+                    {perfis.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.nome}
+                      </option>
+                    ))}
                   </select>
                   <select
                     value={it.reembolso ? "reembolso" : "gasto"}

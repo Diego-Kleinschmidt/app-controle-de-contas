@@ -14,14 +14,23 @@ function valorInicial(lancamento) {
   return formatarComoMoeda(String(Math.round(Number(lancamento.valor) * 100)));
 }
 
-export default function FormNovoLancamento({ lancamento, mesReferencia, onSalvo, onCancelar }) {
+export default function FormNovoLancamento({
+  lancamento,
+  mesReferencia,
+  perfis = [],
+  usuarioId,
+  onSalvo,
+  onCancelar,
+}) {
   const edicao = Boolean(lancamento); // estamos editando algo existente?
 
   const [tipo, setTipo] = useState(lancamento?.tipo ?? "despesa");
   const [descricao, setDescricao] = useState(lancamento?.descricao ?? "");
   const [valor, setValor] = useState(valorInicial(lancamento));
   const [data, setData] = useState((lancamento?.data ?? "").slice(0, 10) || hojeISO());
-  const [responsavel, setResponsavel] = useState(lancamento?.responsavel ?? "diego");
+  const [responsavelId, setResponsavelId] = useState(
+    lancamento?.responsavel_id ?? usuarioId ?? perfis[0]?.id ?? ""
+  );
   const [forma, setForma] = useState("unica");
   const [parcelaTotal, setParcelaTotal] = useState("");
   const [erro, setErro] = useState(null);
@@ -44,7 +53,7 @@ export default function FormNovoLancamento({ lancamento, mesReferencia, onSalvo,
         descricao: descricao.trim(),
         valor: paraNumero(valor),
         data,
-        responsavel,
+        responsavel_id: responsavelId || null,
         forma,
         parcela_total: parcelaTotal,
         mesReferencia, // mês que está sendo visto = mês da conta
@@ -144,12 +153,15 @@ export default function FormNovoLancamento({ lancamento, mesReferencia, onSalvo,
       <label className="flex flex-col gap-1">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
         <select
-          value={responsavel}
-          onChange={(e) => setResponsavel(e.target.value)}
+          value={responsavelId}
+          onChange={(e) => setResponsavelId(e.target.value)}
           className={campo}
         >
-          <option value="diego">Diego</option>
-          <option value="mae">Mãe</option>
+          {perfis.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nome}
+            </option>
+          ))}
         </select>
       </label>
 

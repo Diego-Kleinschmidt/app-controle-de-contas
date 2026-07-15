@@ -1,26 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar, fixar } from "@/lib/lancamentos";
+import { listarPorMes, apagar, fixar, listarPerfis } from "@/lib/lancamentos";
 import { formatarReais, rotuloMes, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 
 export default function PainelContas({ usuario, onSair }) {
-  // "pessoa" vem da conta do usuário. Se for "mae", vê só as contas dela;
-  // qualquer outro valor (ou vazio) é tratado como administrador (Diego).
-  const pessoa = usuario?.user_metadata?.pessoa ?? "diego";
-  const ehAdmin = pessoa !== "mae";
-
-  // Começa no PRÓXIMO mês: as contas lançadas agora costumam ser pagas no mês seguinte.
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
   const [lista, setLista] = useState([]);
+  const [perfis, setPerfis] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImport, setMostrarImport] = useState(false);
   const [editando, setEditando] = useState(null);
-  // Admin começa em "todos"; a mãe fica travada em "mae".
-  const [filtro, setFiltro] = useState(ehAdmin ? "todos" : "mae");
+  const [filtro, setFiltro] = useState("todos"); // "todos" ou o id de um usuário
+
+  // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
+  const meuPerfil = perfis.find((p) => p.id === usuario.id);
+  const ehAdmin = Boolean(meuPerfil?.admin);
+  const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
+
+  // Carrega os perfis uma vez
+  useEffect(() => {
+    listarPerfis()
+      .then(setPerfis)
+      .catch((e) => console.error(e));
+  }, []);
 
   // Carrega os lançamentos do mês selecionado
   const carregar = useCallback(async () => {
@@ -49,18 +55,13 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }
 
-  // Cálculos do mês
-  const gastosMae = lista
-    .filter((l) => l.tipo === "despesa" && l.responsavel === "mae")
-    .reduce((s, l) => s + Number(l.valor), 0);
-
-  // Lista conforme o filtro escolhido (todos / minhas / da mãe)
+  // Lista conforme o filtro (todos ou um usuário específico)
   const listaFiltrada = lista.filter((l) => {
-    if (filtro === "diego") return l.responsavel === "diego";
-    if (filtro === "mae") return l.responsavel === "mae";
-    return true;
+    if (filtro === "todos") return true;
+    return l.responsavel_id === filtro;
   });
-  // Somatórios conforme o filtro escolhido
+
+  // Somatórios do que está visível
   const despesasVisiveis = listaFiltrada
     .filter((l) => l.tipo === "despesa")
     .reduce((s, l) => s + Number(l.valor), 0);
@@ -70,11 +71,9 @@ export default function PainelContas({ usuario, onSair }) {
   const saldoVisivel = receitasVisiveis - despesasVisiveis;
 
   const rotuloHero =
-    filtro === "diego"
-      ? "Minhas contas (Diego)"
-      : filtro === "mae"
-      ? "Contas da mãe"
-      : "Contas do mês (até agora)";
+    filtro === "todos"
+      ? "Contas do mês (até agora)"
+      : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
 
   // Fixados sempre no topo (mantendo a ordem por data dentro de cada grupo)
   const listaOrdenada = [...listaFiltrada].sort((a, b) => {
@@ -90,7 +89,9 @@ export default function PainelContas({ usuario, onSair }) {
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
             💰 Controle de Contas
           </h1>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">{usuario.email}</p>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            {meuPerfil?.nome || usuario.email}
+          </p>
         </div>
         <button
           onClick={onSair}
@@ -121,24 +122,20 @@ export default function PainelContas({ usuario, onSair }) {
         </button>
       </div>
 
-      {/* Filtro: Todos / Minhas / Da Mãe (só para administrador) */}
-      {ehAdmin && (
-        <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
-          {[
-            { chave: "todos", rotulo: "Todos" },
-            { chave: "diego", rotulo: "Minhas" },
-            { chave: "mae", rotulo: "Da Mãe" },
-          ].map((op) => (
+      {/* Filtro por usuário (só para administrador) */}
+      {ehAdmin && perfis.length > 0 && (
+        <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
+          {[{ id: "todos", nome: "Todos" }, ...perfis].map((op) => (
             <button
-              key={op.chave}
-              onClick={() => setFiltro(op.chave)}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                filtro === op.chave
+              key={op.id}
+              onClick={() => setFiltro(op.id)}
+              className={`flex-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                filtro === op.id
                   ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
                   : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
               }`}
             >
-              {op.rotulo}
+              {op.nome}
             </button>
           ))}
         </div>
@@ -146,7 +143,6 @@ export default function PainelContas({ usuario, onSair }) {
 
       {/* Cartão do total de contas (número principal) */}
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {/* Herói: total das contas conforme o filtro */}
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
           {rotuloHero}
         </p>
@@ -154,7 +150,6 @@ export default function PainelContas({ usuario, onSair }) {
           {formatarReais(despesasVisiveis)}
         </p>
 
-        {/* Somatórios do filtro atual */}
         <dl className="mt-4 space-y-2 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
           <div className="flex items-center justify-between">
             <dt className="text-zinc-500 dark:text-zinc-400">Entradas</dt>
@@ -176,22 +171,16 @@ export default function PainelContas({ usuario, onSair }) {
               </dd>
             </div>
           )}
-          {filtro === "todos" && gastosMae > 0 && (
-            <div className="flex items-center justify-between">
-              <dt className="text-zinc-500 dark:text-zinc-400">Contas da mãe</dt>
-              <dd className="font-medium text-zinc-700 dark:text-zinc-200">
-                {formatarReais(gastosMae)}
-              </dd>
-            </div>
-          )}
         </dl>
       </section>
 
-      {/* Formulário de EDIÇÃO (aparece quando uma conta está sendo editada) */}
-      {editando && (
+      {/* Formulário de EDIÇÃO (só admin) */}
+      {ehAdmin && editando && (
         <FormNovoLancamento
           key={editando.id}
           lancamento={editando}
+          perfis={perfis}
+          usuarioId={usuario.id}
           onSalvo={() => {
             setEditando(null);
             carregar();
@@ -227,6 +216,8 @@ export default function PainelContas({ usuario, onSair }) {
           {mostrarForm && (
             <FormNovoLancamento
               mesReferencia={mes}
+              perfis={perfis}
+              usuarioId={usuario.id}
               onSalvo={() => {
                 setMostrarForm(false);
                 carregar();
@@ -238,6 +229,8 @@ export default function PainelContas({ usuario, onSair }) {
             <ImportarExtrato
               mesReferencia={mes}
               existentes={lista}
+              perfis={perfis}
+              usuarioId={usuario.id}
               onSalvo={() => {
                 setMostrarImport(false);
                 carregar();
@@ -278,8 +271,8 @@ export default function PainelContas({ usuario, onSair }) {
                 </p>
                 <p className="flex flex-wrap gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
                   <span>{formatarDataBR(l.data)}</span>
-                  {l.responsavel && (
-                    <span>• {l.responsavel === "mae" ? "Mãe" : "Diego"}</span>
+                  {l.responsavel_id && nomePorId[l.responsavel_id] && (
+                    <span>• {nomePorId[l.responsavel_id]}</span>
                   )}
                   {l.forma === "parcelada" && (
                     <span>
