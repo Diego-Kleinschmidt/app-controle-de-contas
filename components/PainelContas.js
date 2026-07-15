@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar } from "@/lib/lancamentos";
+import { listarPorMes, apagar, fixar } from "@/lib/lancamentos";
 import { formatarReais, rotuloMes, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
+import ImportarExtrato from "@/components/ImportarExtrato";
 
 export default function PainelContas({ usuario, onSair }) {
   // Começa no PRÓXIMO mês: as contas lançadas agora costumam ser pagas no mês seguinte.
@@ -11,7 +12,9 @@ export default function PainelContas({ usuario, onSair }) {
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
+  const [mostrarImport, setMostrarImport] = useState(false);
   const [editando, setEditando] = useState(null);
+  const [filtro, setFiltro] = useState("todos"); // todos | diego | mae
 
   // Carrega os lançamentos do mês selecionado
   const carregar = useCallback(async () => {
@@ -35,17 +38,43 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }
 
+  async function alternarFixado(l) {
+    await fixar(l.id, !l.fixado);
+    carregar();
+  }
+
   // Cálculos do mês
-  const receitas = lista
-    .filter((l) => l.tipo === "receita")
-    .reduce((s, l) => s + Number(l.valor), 0);
-  const despesas = lista
-    .filter((l) => l.tipo === "despesa")
-    .reduce((s, l) => s + Number(l.valor), 0);
-  const saldo = receitas - despesas;
   const gastosMae = lista
     .filter((l) => l.tipo === "despesa" && l.responsavel === "mae")
     .reduce((s, l) => s + Number(l.valor), 0);
+
+  // Lista conforme o filtro escolhido (todos / minhas / da mãe)
+  const listaFiltrada = lista.filter((l) => {
+    if (filtro === "diego") return l.responsavel === "diego";
+    if (filtro === "mae") return l.responsavel === "mae";
+    return true;
+  });
+  // Somatórios conforme o filtro escolhido
+  const despesasVisiveis = listaFiltrada
+    .filter((l) => l.tipo === "despesa")
+    .reduce((s, l) => s + Number(l.valor), 0);
+  const receitasVisiveis = listaFiltrada
+    .filter((l) => l.tipo === "receita")
+    .reduce((s, l) => s + Number(l.valor), 0);
+  const saldoVisivel = receitasVisiveis - despesasVisiveis;
+
+  const rotuloHero =
+    filtro === "diego"
+      ? "Minhas contas (Diego)"
+      : filtro === "mae"
+      ? "Contas da mãe"
+      : "Contas do mês (até agora)";
+
+  // Fixados sempre no topo (mantendo a ordem por data dentro de cada grupo)
+  const listaOrdenada = [...listaFiltrada].sort((a, b) => {
+    if (Boolean(a.fixado) !== Boolean(b.fixado)) return a.fixado ? -1 : 1;
+    return 0;
+  });
 
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-4 py-6">
@@ -86,39 +115,60 @@ export default function PainelContas({ usuario, onSair }) {
         </button>
       </div>
 
+      {/* Filtro: Todos / Minhas / Da Mãe */}
+      <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
+        {[
+          { chave: "todos", rotulo: "Todos" },
+          { chave: "diego", rotulo: "Minhas" },
+          { chave: "mae", rotulo: "Da Mãe" },
+        ].map((op) => (
+          <button
+            key={op.chave}
+            onClick={() => setFiltro(op.chave)}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              filtro === op.chave
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {op.rotulo}
+          </button>
+        ))}
+      </div>
+
       {/* Cartão do total de contas (número principal) */}
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-        {/* Herói: total das contas lançadas até agora */}
+        {/* Herói: total das contas conforme o filtro */}
         <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
-          Contas do mês (até agora)
+          {rotuloHero}
         </p>
         <p className="mt-1 text-4xl font-bold tracking-tight text-rose-600 dark:text-rose-400">
-          {formatarReais(despesas)}
+          {formatarReais(despesasVisiveis)}
         </p>
 
-        {/* Extras: entradas e saldo */}
+        {/* Somatórios do filtro atual */}
         <dl className="mt-4 space-y-2 border-t border-zinc-200 pt-4 text-sm dark:border-zinc-800">
           <div className="flex items-center justify-between">
-            <dt className="text-zinc-500 dark:text-zinc-400">Entradas (salário etc.)</dt>
+            <dt className="text-zinc-500 dark:text-zinc-400">Entradas</dt>
             <dd className="font-medium text-emerald-600 dark:text-emerald-400">
-              {formatarReais(receitas)}
+              {formatarReais(receitasVisiveis)}
             </dd>
           </div>
-          {receitas > 0 && (
+          {receitasVisiveis > 0 && (
             <div className="flex items-center justify-between">
               <dt className="text-zinc-500 dark:text-zinc-400">Sobra (entradas − contas)</dt>
               <dd
                 className={`font-semibold ${
-                  saldo >= 0
+                  saldoVisivel >= 0
                     ? "text-emerald-600 dark:text-emerald-400"
                     : "text-rose-600 dark:text-rose-400"
                 }`}
               >
-                {formatarReais(saldo)} {saldo >= 0 ? "✅" : "⚠️"}
+                {formatarReais(saldoVisivel)} {saldoVisivel >= 0 ? "✅" : "⚠️"}
               </dd>
             </div>
           )}
-          {gastosMae > 0 && (
+          {filtro === "todos" && gastosMae > 0 && (
             <div className="flex items-center justify-between">
               <dt className="text-zinc-500 dark:text-zinc-400">Contas da mãe</dt>
               <dd className="font-medium text-zinc-700 dark:text-zinc-200">
@@ -142,15 +192,29 @@ export default function PainelContas({ usuario, onSair }) {
         />
       )}
 
-      {/* Botão e formulário de NOVO lançamento (escondidos enquanto edita) */}
+      {/* Botões e formulários de NOVO / IMPORTAR (escondidos enquanto edita) */}
       {!editando && (
         <>
-          <button
-            onClick={() => setMostrarForm((v) => !v)}
-            className="rounded-lg bg-zinc-900 px-4 py-2.5 font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-          >
-            {mostrarForm ? "Fechar" : "+ Novo lançamento"}
-          </button>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                setMostrarForm((v) => !v);
+                setMostrarImport(false);
+              }}
+              className="rounded-lg bg-zinc-900 px-4 py-2.5 font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            >
+              {mostrarForm ? "Fechar" : "+ Novo lançamento"}
+            </button>
+            <button
+              onClick={() => {
+                setMostrarImport((v) => !v);
+                setMostrarForm(false);
+              }}
+              className="rounded-lg border border-zinc-900 px-4 py-2.5 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+            >
+              {mostrarImport ? "Fechar" : "📷 Importar extrato"}
+            </button>
+          </div>
 
           {mostrarForm && (
             <FormNovoLancamento
@@ -159,6 +223,18 @@ export default function PainelContas({ usuario, onSair }) {
                 setMostrarForm(false);
                 carregar();
               }}
+            />
+          )}
+
+          {mostrarImport && (
+            <ImportarExtrato
+              mesReferencia={mes}
+              existentes={lista}
+              onSalvo={() => {
+                setMostrarImport(false);
+                carregar();
+              }}
+              onCancelar={() => setMostrarImport(false)}
             />
           )}
         </>
@@ -174,15 +250,19 @@ export default function PainelContas({ usuario, onSair }) {
           <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
             Carregando…
           </p>
-        ) : lista.length === 0 ? (
+        ) : listaFiltrada.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-            Nenhum lançamento neste mês. Que tal adicionar o primeiro? 👆
+            Nenhum lançamento nesta visão. 👆
           </p>
         ) : (
-          lista.map((l) => (
+          listaOrdenada.map((l) => (
             <div
               key={l.id}
-              className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900"
+              className={`flex items-center justify-between rounded-xl border bg-white px-4 py-3 dark:bg-zinc-900 ${
+                l.fixado
+                  ? "border-amber-300 dark:border-amber-800"
+                  : "border-zinc-200 dark:border-zinc-800"
+              }`}
             >
               <div className="min-w-0">
                 <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">
@@ -190,7 +270,7 @@ export default function PainelContas({ usuario, onSair }) {
                 </p>
                 <p className="flex flex-wrap gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
                   <span>{formatarDataBR(l.data)}</span>
-                  {l.tipo === "despesa" && l.responsavel && (
+                  {l.responsavel && (
                     <span>• {l.responsavel === "mae" ? "Mãe" : "Diego"}</span>
                   )}
                   {l.forma === "parcelada" && (
@@ -199,18 +279,34 @@ export default function PainelContas({ usuario, onSair }) {
                     </span>
                   )}
                   {l.forma === "recorrente" && <span>• recorrente</span>}
+                  {l.tipo === "despesa" && Number(l.valor) < 0 && (
+                    <span>• reembolso</span>
+                  )}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-3 pl-3">
                 <span
                   className={`font-semibold ${
-                    l.tipo === "receita"
+                    l.tipo === "receita" || Number(l.valor) < 0
                       ? "text-emerald-600 dark:text-emerald-400"
                       : "text-rose-600 dark:text-rose-400"
                   }`}
                 >
-                  {l.tipo === "receita" ? "+" : "−"} {formatarReais(l.valor)}
+                  {l.tipo === "receita" || Number(l.valor) < 0 ? "+" : "−"}{" "}
+                  {formatarReais(Math.abs(Number(l.valor)))}
                 </span>
+                <button
+                  onClick={() => alternarFixado(l)}
+                  className={`transition-colors ${
+                    l.fixado
+                      ? "opacity-100"
+                      : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
+                  }`}
+                  aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
+                  title={l.fixado ? "Desafixar" : "Fixar no topo"}
+                >
+                  📌
+                </button>
                 <button
                   onClick={() => {
                     setMostrarForm(false);

@@ -44,7 +44,7 @@ export default function FormNovoLancamento({ lancamento, mesReferencia, onSalvo,
         descricao: descricao.trim(),
         valor: paraNumero(valor),
         data,
-        responsavel: tipo === "despesa" ? responsavel : null,
+        responsavel,
         forma,
         parcela_total: parcelaTotal,
         mesReferencia, // mês que está sendo visto = mês da conta
@@ -140,20 +140,18 @@ export default function FormNovoLancamento({ lancamento, mesReferencia, onSalvo,
         </label>
       </div>
 
-      {/* Responsável: só faz sentido para despesa */}
-      {tipo === "despesa" && (
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
-          <select
-            value={responsavel}
-            onChange={(e) => setResponsavel(e.target.value)}
-            className={campo}
-          >
-            <option value="diego">Diego</option>
-            <option value="mae">Mãe</option>
-          </select>
-        </label>
-      )}
+      {/* Responsável: vale para despesa e receita */}
+      <label className="flex flex-col gap-1">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
+        <select
+          value={responsavel}
+          onChange={(e) => setResponsavel(e.target.value)}
+          className={campo}
+        >
+          <option value="diego">Diego</option>
+          <option value="mae">Mãe</option>
+        </select>
+      </label>
 
       {/* Forma e parcelas: só ao criar (na edição não mexemos no parcelamento) */}
       {!edicao && (
