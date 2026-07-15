@@ -7,6 +7,11 @@ import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 
 export default function PainelContas({ usuario, onSair }) {
+  // "pessoa" vem da conta do usuário. Se for "mae", vê só as contas dela;
+  // qualquer outro valor (ou vazio) é tratado como administrador (Diego).
+  const pessoa = usuario?.user_metadata?.pessoa ?? "diego";
+  const ehAdmin = pessoa !== "mae";
+
   // Começa no PRÓXIMO mês: as contas lançadas agora costumam ser pagas no mês seguinte.
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
   const [lista, setLista] = useState([]);
@@ -14,7 +19,8 @@ export default function PainelContas({ usuario, onSair }) {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImport, setMostrarImport] = useState(false);
   const [editando, setEditando] = useState(null);
-  const [filtro, setFiltro] = useState("todos"); // todos | diego | mae
+  // Admin começa em "todos"; a mãe fica travada em "mae".
+  const [filtro, setFiltro] = useState(ehAdmin ? "todos" : "mae");
 
   // Carrega os lançamentos do mês selecionado
   const carregar = useCallback(async () => {
@@ -115,26 +121,28 @@ export default function PainelContas({ usuario, onSair }) {
         </button>
       </div>
 
-      {/* Filtro: Todos / Minhas / Da Mãe */}
-      <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
-        {[
-          { chave: "todos", rotulo: "Todos" },
-          { chave: "diego", rotulo: "Minhas" },
-          { chave: "mae", rotulo: "Da Mãe" },
-        ].map((op) => (
-          <button
-            key={op.chave}
-            onClick={() => setFiltro(op.chave)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-              filtro === op.chave
-                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
-            }`}
-          >
-            {op.rotulo}
-          </button>
-        ))}
-      </div>
+      {/* Filtro: Todos / Minhas / Da Mãe (só para administrador) */}
+      {ehAdmin && (
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
+          {[
+            { chave: "todos", rotulo: "Todos" },
+            { chave: "diego", rotulo: "Minhas" },
+            { chave: "mae", rotulo: "Da Mãe" },
+          ].map((op) => (
+            <button
+              key={op.chave}
+              onClick={() => setFiltro(op.chave)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                filtro === op.chave
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {op.rotulo}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Cartão do total de contas (número principal) */}
       <section className="rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -192,8 +200,8 @@ export default function PainelContas({ usuario, onSair }) {
         />
       )}
 
-      {/* Botões e formulários de NOVO / IMPORTAR (escondidos enquanto edita) */}
-      {!editando && (
+      {/* Botões e formulários de NOVO / IMPORTAR (só admin, e não ao editar) */}
+      {ehAdmin && !editando && (
         <>
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -295,37 +303,41 @@ export default function PainelContas({ usuario, onSair }) {
                   {l.tipo === "receita" || Number(l.valor) < 0 ? "+" : "−"}{" "}
                   {formatarReais(Math.abs(Number(l.valor)))}
                 </span>
-                <button
-                  onClick={() => alternarFixado(l)}
-                  className={`transition-colors ${
-                    l.fixado
-                      ? "opacity-100"
-                      : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
-                  }`}
-                  aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
-                  title={l.fixado ? "Desafixar" : "Fixar no topo"}
-                >
-                  📌
-                </button>
-                <button
-                  onClick={() => {
-                    setMostrarForm(false);
-                    setEditando(l);
-                  }}
-                  className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
-                  aria-label="Editar"
-                  title="Editar"
-                >
-                  ✏️
-                </button>
-                <button
-                  onClick={() => removerLancamento(l.id)}
-                  className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
-                  aria-label="Apagar"
-                  title="Apagar"
-                >
-                  🗑️
-                </button>
+                {ehAdmin && (
+                  <>
+                    <button
+                      onClick={() => alternarFixado(l)}
+                      className={`transition-colors ${
+                        l.fixado
+                          ? "opacity-100"
+                          : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
+                      }`}
+                      aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
+                      title={l.fixado ? "Desafixar" : "Fixar no topo"}
+                    >
+                      📌
+                    </button>
+                    <button
+                      onClick={() => {
+                        setMostrarForm(false);
+                        setEditando(l);
+                      }}
+                      className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                      aria-label="Editar"
+                      title="Editar"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={() => removerLancamento(l.id)}
+                      className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
+                      aria-label="Apagar"
+                      title="Apagar"
+                    >
+                      🗑️
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))
