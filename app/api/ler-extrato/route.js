@@ -7,8 +7,10 @@ export const runtime = "nodejs";
 // Vercel é ~10s, o que interrompia a análise no meio).
 export const maxDuration = 60;
 
-// Modelo de IA usado (gratuito). Se um dia sair de linha, é só trocar aqui.
-const MODELO = "gemini-flash-latest";
+// Modelos de IA (gratuitos), em ordem de preferência. Cada modelo tem sua
+// PRÓPRIA cota no plano gratuito, então, se o primeiro estourar o limite (429),
+// tentamos o próximo automaticamente. (Testado na conta: ambos funcionam.)
+const MODELOS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
 const INSTRUCAO = `Você recebe a imagem de um extrato ou fatura de cartão de crédito.
 Extraia TODAS as movimentações: tanto COMPRAS/GASTOS quanto REEMBOLSOS/ESTORNOS
@@ -39,8 +41,6 @@ export async function POST(request) {
       return Response.json({ erro: "Nenhuma imagem foi enviada." }, { status: 400 });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${apiKey}`;
-
     const corpo = {
       contents: [
         {
@@ -53,11 +53,41 @@ export async function POST(request) {
       generationConfig: { responseMimeType: "application/json" },
     };
 
-    const resposta = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(corpo),
-    });
+    // Quando a IA está sobrecarregada (503/500), tentamos de novo algumas vezes
+    // sozinhos, com uma pausa crescente entre as tentativas. Assim o usuário não
+    // precisa reenviar o print na mão.
+    const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+    const TENTATIVAS = 4;
+    const PAUSAS = [1500, 3000, 5000]; // pausa antes de cada nova tentativa
+
+    let resposta;
+    // Tenta cada modelo em ordem. Se um estourar o limite (429) ou ficar
+    // sobrecarregado, passa automaticamente para o próximo (cota separada).
+    for (const modelo of MODELOS) {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
+
+      for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa++) {
+        resposta = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(corpo),
+        });
+
+        // Deu certo, ou é um erro que não adianta repetir → sai do laço interno
+        const valeRepetir = resposta.status === 503 || resposta.status === 500;
+        if (resposta.ok || !valeRepetir || tentativa === TENTATIVAS) break;
+
+        console.warn(
+          `Gemini "${modelo}" sobrecarregado (${resposta.status}). Tentativa ${tentativa}/${TENTATIVAS}, aguardando…`
+        );
+        await espera(PAUSAS[tentativa - 1] ?? 5000);
+      }
+
+      if (resposta.ok) break; // funcionou com este modelo
+      console.warn(
+        `Modelo "${modelo}" indisponível (${resposta.status}). Tentando o próximo…`
+      );
+    }
 
     if (!resposta.ok) {
       const detalhe = await resposta.text();
@@ -65,10 +95,15 @@ export async function POST(request) {
 
       let mensagem = "A IA retornou um erro. Tente de novo.";
       if (resposta.status === 429) {
-        mensagem =
-          "Limite de uso gratuito da IA atingido. Espere cerca de 1 minuto e tente de novo.";
+        // O Google separa o limite "por dia" do "por minuto". Se o detalhe
+        // menciona o limite diário, avisamos que só reseta no dia seguinte.
+        const limiteDiario = /per\s*day|perday/i.test(detalhe);
+        mensagem = limiteDiario
+          ? "Você atingiu o limite gratuito da IA de HOJE. Ele reseta amanhã. (Dá para lançar manualmente enquanto isso.)"
+          : "Muitas leituras em pouco tempo (limite por minuto do plano gratuito). Espere cerca de 1 minuto e tente de novo.";
       } else if (resposta.status === 503 || resposta.status === 500) {
-        mensagem = "A IA está sobrecarregada agora. Tente de novo em instantes.";
+        mensagem =
+          "A IA está muito sobrecarregada agora (já tentei algumas vezes). Espere um pouquinho e tente de novo.";
       }
       return Response.json({ erro: mensagem }, { status: 502 });
     }

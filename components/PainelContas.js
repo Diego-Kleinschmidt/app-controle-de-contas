@@ -16,7 +16,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImport, setMostrarImport] = useState(false);
   const [editando, setEditando] = useState(null);
-  const [filtro, setFiltro] = useState("todos"); // "todos" ou o id de um usuário
+  const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
@@ -32,6 +32,15 @@ export default function PainelContas({ usuario, onSair }) {
       .then(setGrupo)
       .catch((e) => console.error(e));
   }, []);
+
+  // Define a pessoa inicial assim que os perfis chegam: a própria pessoa
+  // logada (se estiver na lista) ou a primeira. Sempre há alguém em foco.
+  useEffect(() => {
+    if (!filtro && perfis.length > 0) {
+      const meu = perfis.find((p) => p.id === usuario.id);
+      setFiltro(meu ? meu.id : perfis[0].id);
+    }
+  }, [perfis, filtro, usuario.id]);
 
   // Carrega os lançamentos do mês selecionado
   const carregar = useCallback(async () => {
@@ -62,7 +71,7 @@ export default function PainelContas({ usuario, onSair }) {
 
   // Lista conforme o filtro (todos ou um usuário específico)
   const listaFiltrada = lista.filter((l) => {
-    if (filtro === "todos") return true;
+    if (!filtro || filtro === "todos") return true; // "" = antes dos perfis carregarem
     return l.responsavel_id === filtro;
   });
 
@@ -76,7 +85,7 @@ export default function PainelContas({ usuario, onSair }) {
   const saldoVisivel = receitasVisiveis - despesasVisiveis;
 
   const rotuloHero =
-    filtro === "todos"
+    !filtro || filtro === "todos"
       ? "Contas do mês (até agora)"
       : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
 
@@ -127,10 +136,11 @@ export default function PainelContas({ usuario, onSair }) {
         </button>
       </div>
 
-      {/* Filtro por usuário (só para administrador) */}
+      {/* Filtro por usuário (só para administrador).
+          Sempre há uma pessoa em foco (não existe "todos"): clicar troca a pessoa. */}
       {ehAdmin && perfis.length > 0 && (
         <div className="flex flex-wrap gap-1 rounded-xl border border-zinc-200 bg-white p-1 dark:border-zinc-800 dark:bg-zinc-900">
-          {[{ id: "todos", nome: "Todos" }, ...perfis].map((op) => (
+          {perfis.map((op) => (
             <button
               key={op.id}
               onClick={() => setFiltro(op.id)}

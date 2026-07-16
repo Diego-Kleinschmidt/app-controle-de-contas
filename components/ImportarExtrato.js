@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { criarVarios } from "@/lib/lancamentos";
-import { formatarReais, hojeISO, paraNumero, formatarComoMoeda } from "@/lib/formato";
+import {
+  formatarReais,
+  hojeISO,
+  paraNumero,
+  formatarComoMoeda,
+  ajustarAnoPorReferencia,
+} from "@/lib/formato";
 
 const campo =
   "w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
@@ -58,17 +64,28 @@ export default function ImportarExtrato({
   const [itens, setItens] = useState(null); // null = ainda não leu
   const [salvando, setSalvando] = useState(false);
 
+  // Permite CANCELAR o pedido à IA se a tela for fechada no meio da leitura.
+  const controladorRef = useRef(null);
+  useEffect(() => {
+    // Ao desmontar (fechar a janela), aborta qualquer leitura em andamento.
+    return () => controladorRef.current?.abort();
+  }, []);
+
   async function aoEscolherArquivo(evento) {
     const arquivo = evento.target.files?.[0];
     if (!arquivo) return;
     setErro(null);
     setCarregando(true);
+    // Novo controlador para esta leitura (permite cancelar ao fechar a tela)
+    const controlador = new AbortController();
+    controladorRef.current = controlador;
     try {
       const { base64, mimeType } = await prepararImagem(arquivo);
       const resposta = await fetch("/api/ler-extrato", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imagemBase64: base64, mimeType }),
+        signal: controlador.signal,
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
@@ -77,7 +94,8 @@ export default function ImportarExtrato({
       const lidos = (dados.lancamentos || []).map((l) => ({
         descricao: l.descricao || "",
         valor: Math.abs(Number(l.valor)) || 0,
-        data: (l.data || hojeISO()).slice(0, 10),
+        // Extrato costuma vir sem ano — corrigimos pelo mês que está sendo visto
+        data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
         responsavel_id: respPadrao,
         reembolso: Boolean(l.reembolso),
       }));
@@ -106,8 +124,10 @@ export default function ImportarExtrato({
         setItens(comDedup);
       }
     } catch (e) {
-      setErro(e.message);
+      // Se foi cancelado (tela fechada), não é erro — apenas ignoramos.
+      if (e.name !== "AbortError") setErro(e.message);
     } finally {
+      controladorRef.current = null;
       setCarregando(false);
     }
   }
