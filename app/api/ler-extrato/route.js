@@ -3,6 +3,9 @@
 // a lista de gastos. A chave da IA fica escondida aqui, longe do navegador.
 
 export const runtime = "nodejs";
+// A leitura da imagem pela IA pode demorar. Damos até 60s (o padrão da
+// Vercel é ~10s, o que interrompia a análise no meio).
+export const maxDuration = 60;
 
 // Modelo de IA usado (gratuito). Se um dia sair de linha, é só trocar aqui.
 const MODELO = "gemini-flash-latest";
