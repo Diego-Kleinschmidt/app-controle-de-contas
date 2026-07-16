@@ -9,6 +9,7 @@ export default function Login() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erro, setErro] = useState(null);
   const [carregando, setCarregando] = useState(false);
 
@@ -65,15 +66,26 @@ export default function Login() {
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
             Senha
           </span>
-          <input
-            type="password"
-            required
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            placeholder="••••••••"
-            autoComplete="current-password"
-            className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-          />
+          <div className="relative">
+            <input
+              type={mostrarSenha ? "text" : "password"}
+              required
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 pr-11 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            />
+            <button
+              type="button"
+              onClick={() => setMostrarSenha((v) => !v)}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-lg"
+              aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+              title={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+            >
+              {mostrarSenha ? "🙈" : "👁️"}
+            </button>
+          </div>
         </label>
 
         {erro && <p className="text-sm text-rose-600 dark:text-rose-400">{erro}</p>}

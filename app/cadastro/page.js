@@ -6,7 +6,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 const campo =
-  "rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
+  "w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
 
 export default function Cadastro() {
   const router = useRouter();
@@ -14,6 +14,7 @@ export default function Cadastro() {
   const [email, setEmail] = useState("");
   const [senha, setSenha] = useState("");
   const [codigo, setCodigo] = useState("");
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [erro, setErro] = useState(null);
   const [carregando, setCarregando] = useState(false);
 
@@ -21,6 +22,16 @@ export default function Cadastro() {
     evento.preventDefault();
     setCarregando(true);
     setErro(null);
+
+    // Verifica o código de convite antes de tentar cadastrar (erro amigável)
+    const { data: valido } = await supabase.rpc("codigo_valido", {
+      p_codigo: codigo.trim(),
+    });
+    if (!valido) {
+      setCarregando(false);
+      setErro("Código de convite inválido. Você precisa de um código para se cadastrar.");
+      return;
+    }
 
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
@@ -34,7 +45,6 @@ export default function Cadastro() {
     } else if (data.session) {
       router.replace("/"); // entrou direto (sem confirmação de e-mail)
     } else {
-      // caso a confirmação de e-mail esteja ligada
       setErro("Conta criada! Verifique seu e-mail para confirmar antes de entrar.");
     }
   }
@@ -82,31 +92,43 @@ export default function Cadastro() {
 
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Senha</span>
-          <input
-            type="password"
-            required
-            minLength={6}
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            placeholder="mínimo 6 caracteres"
-            autoComplete="new-password"
-            className={campo}
-          />
+          <div className="relative">
+            <input
+              type={mostrarSenha ? "text" : "password"}
+              required
+              minLength={6}
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="mínimo 6 caracteres"
+              autoComplete="new-password"
+              className={`${campo} w-full pr-11`}
+            />
+            <button
+              type="button"
+              onClick={() => setMostrarSenha((v) => !v)}
+              className="absolute inset-y-0 right-0 flex items-center px-3 text-lg"
+              aria-label={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+              title={mostrarSenha ? "Ocultar senha" : "Mostrar senha"}
+            >
+              {mostrarSenha ? "🙈" : "👁️"}
+            </button>
+          </div>
         </label>
 
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Código de convite <span className="text-zinc-400">(opcional)</span>
+            Código de convite
           </span>
           <input
             type="text"
+            required
             value={codigo}
             onChange={(e) => setCodigo(e.target.value)}
-            placeholder="Se alguém te convidou, cole o código"
+            placeholder="Cole o código que você recebeu"
             className={campo}
           />
           <span className="text-xs text-zinc-400 dark:text-zinc-500">
-            Sem código, você cria uma família nova (e vira o administrador dela).
+            É necessário um código para se cadastrar. Peça a quem já usa o app.
           </span>
         </label>
 

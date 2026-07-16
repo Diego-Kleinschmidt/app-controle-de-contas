@@ -6,7 +6,7 @@ import { hojeISO, paraNumero, formatarComoMoeda } from "@/lib/formato";
 
 // Estilo reaproveitado nos campos
 const campo =
-  "rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
+  "w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
 
 // Converte o valor guardado (número) para o texto do campo: 71 -> "71,00"
 function valorInicial(lancamento) {

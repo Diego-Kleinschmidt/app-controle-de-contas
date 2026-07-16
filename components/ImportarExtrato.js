@@ -5,7 +5,7 @@ import { criarVarios } from "@/lib/lancamentos";
 import { formatarReais, hojeISO, paraNumero, formatarComoMoeda } from "@/lib/formato";
 
 const campo =
-  "rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
+  "w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
 
 // Diminui a imagem (mais leve e rápida para a IA) e devolve base64 + tipo.
 function prepararImagem(arquivo, maxLado = 2000) {

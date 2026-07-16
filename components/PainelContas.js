@@ -5,6 +5,7 @@ import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo } from "@/lib/lan
 import { formatarReais, rotuloMes, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
+import Modal from "@/components/Modal";
 
 export default function PainelContas({ usuario, onSair }) {
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
@@ -178,71 +179,72 @@ export default function PainelContas({ usuario, onSair }) {
         </dl>
       </section>
 
-      {/* Formulário de EDIÇÃO (só admin) */}
-      {ehAdmin && editando && (
-        <FormNovoLancamento
-          key={editando.id}
-          lancamento={editando}
-          perfis={perfis}
-          usuarioId={usuario.id}
-          onSalvo={() => {
-            setEditando(null);
-            carregar();
-          }}
-          onCancelar={() => setEditando(null)}
-        />
+      {/* Botões de NOVO / IMPORTAR (abrem em modal) */}
+      {ehAdmin && (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setMostrarForm(true)}
+            className="rounded-lg bg-zinc-900 px-4 py-2.5 font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            + Novo lançamento
+          </button>
+          <button
+            onClick={() => setMostrarImport(true)}
+            className="rounded-lg border border-zinc-900 px-4 py-2.5 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
+          >
+            📷 Importar extrato
+          </button>
+        </div>
       )}
 
-      {/* Botões e formulários de NOVO / IMPORTAR (só admin, e não ao editar) */}
-      {ehAdmin && !editando && (
-        <>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => {
-                setMostrarForm((v) => !v);
-                setMostrarImport(false);
-              }}
-              className="rounded-lg bg-zinc-900 px-4 py-2.5 font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-            >
-              {mostrarForm ? "Fechar" : "+ Novo lançamento"}
-            </button>
-            <button
-              onClick={() => {
-                setMostrarImport((v) => !v);
-                setMostrarForm(false);
-              }}
-              className="rounded-lg border border-zinc-900 px-4 py-2.5 font-medium text-zinc-900 transition-colors hover:bg-zinc-100 dark:border-zinc-100 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            >
-              {mostrarImport ? "Fechar" : "📷 Importar extrato"}
-            </button>
-          </div>
+      {/* Modal: novo lançamento */}
+      {ehAdmin && mostrarForm && (
+        <Modal onClose={() => setMostrarForm(false)}>
+          <FormNovoLancamento
+            mesReferencia={mes}
+            perfis={perfis}
+            usuarioId={usuario.id}
+            onSalvo={() => {
+              setMostrarForm(false);
+              carregar();
+            }}
+            onCancelar={() => setMostrarForm(false)}
+          />
+        </Modal>
+      )}
 
-          {mostrarForm && (
-            <FormNovoLancamento
-              mesReferencia={mes}
-              perfis={perfis}
-              usuarioId={usuario.id}
-              onSalvo={() => {
-                setMostrarForm(false);
-                carregar();
-              }}
-            />
-          )}
+      {/* Modal: editar lançamento */}
+      {ehAdmin && editando && (
+        <Modal onClose={() => setEditando(null)}>
+          <FormNovoLancamento
+            key={editando.id}
+            lancamento={editando}
+            perfis={perfis}
+            usuarioId={usuario.id}
+            onSalvo={() => {
+              setEditando(null);
+              carregar();
+            }}
+            onCancelar={() => setEditando(null)}
+          />
+        </Modal>
+      )}
 
-          {mostrarImport && (
-            <ImportarExtrato
-              mesReferencia={mes}
-              existentes={lista}
-              perfis={perfis}
-              usuarioId={usuario.id}
-              onSalvo={() => {
-                setMostrarImport(false);
-                carregar();
-              }}
-              onCancelar={() => setMostrarImport(false)}
-            />
-          )}
-        </>
+      {/* Modal: importar extrato */}
+      {ehAdmin && mostrarImport && (
+        <Modal onClose={() => setMostrarImport(false)}>
+          <ImportarExtrato
+            mesReferencia={mes}
+            existentes={lista}
+            perfis={perfis}
+            usuarioId={usuario.id}
+            onSalvo={() => {
+              setMostrarImport(false);
+              carregar();
+            }}
+            onCancelar={() => setMostrarImport(false)}
+          />
+        </Modal>
       )}
 
       {/* Lista de lançamentos do mês */}

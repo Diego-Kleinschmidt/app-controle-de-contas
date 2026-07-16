@@ -30,6 +30,30 @@ returns boolean language sql stable security definer as $$
   select coalesce((select admin from public.perfis where id = auth.uid()), false);
 $$;
 
+-- 3b) Config secreta: guarda o CÓDIGO MESTRE (só você conhece).
+--     Sem policy de leitura = ninguém lê pelo app; só as funções internas leem.
+create table if not exists public.config (
+  chave text primary key,
+  valor text not null
+);
+alter table public.config enable row level security;
+
+-- >>> DEFINA o seu código mestre (guarde em segredo; troque o valor abaixo):
+insert into public.config (chave, valor)
+  values ('codigo_mestre', 'MUDE-ESTE-CODIGO-MESTRE')
+  on conflict (chave) do update set valor = excluded.valor;
+
+-- Verifica se um código é válido (mestre ou de uma família existente).
+-- Usado pela tela de cadastro para dar um erro amigável.
+create or replace function public.codigo_valido(p_codigo text)
+returns boolean language sql stable security definer as $$
+  select p_codigo is not null and length(trim(p_codigo)) > 0 and (
+    trim(p_codigo) = (select valor from public.config where chave = 'codigo_mestre')
+    or exists (select 1 from public.grupos where codigo_convite = trim(p_codigo))
+  );
+$$;
+grant execute on function public.codigo_valido(text) to anon, authenticated;
+
 -- 4) Coloca os dados que JÁ existem em uma primeira família
 do $$
 declare gid uuid;
@@ -51,24 +75,30 @@ declare
   v_nome   text := coalesce(new.raw_user_meta_data->>'nome', split_part(new.email, '@', 1));
   v_grupo  uuid;
   v_admin  boolean;
+  v_mestre text := (select valor from public.config where chave = 'codigo_mestre');
 begin
-  if v_codigo is not null then
-    select id into v_grupo from public.grupos where codigo_convite = v_codigo;
+  -- Código é OBRIGATÓRIO: ninguém se cadastra sem um.
+  if v_codigo is null then
+    raise exception 'É necessário um código de convite para se cadastrar.';
   end if;
 
-  if v_grupo is null then
-    -- sem código válido: cria uma família nova e a pessoa vira admin
+  if v_mestre is not null and v_codigo = v_mestre then
+    -- código MESTRE: cria uma família nova e vira admin
     insert into public.grupos (nome, codigo_convite)
       values (v_nome, substr(md5(random()::text), 1, 8))
       returning id into v_grupo;
     v_admin := true;
   else
-    v_admin := false; -- entrou numa família existente
+    -- código de convite de uma família existente
+    select id into v_grupo from public.grupos where codigo_convite = v_codigo;
+    if v_grupo is null then
+      raise exception 'Código de convite inválido.';
+    end if;
+    v_admin := false;
   end if;
 
   insert into public.perfis (id, nome, admin, grupo_id)
-    values (new.id, v_nome, v_admin, v_grupo)
-    on conflict (id) do nothing;
+    values (new.id, v_nome, v_admin, v_grupo);
   return new;
 end; $$;
 
