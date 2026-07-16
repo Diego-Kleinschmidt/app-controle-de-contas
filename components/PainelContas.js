@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar, fixar, listarPerfis } from "@/lib/lancamentos";
+import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo } from "@/lib/lancamentos";
 import { formatarReais, rotuloMes, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
@@ -10,6 +10,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
   const [lista, setLista] = useState([]);
   const [perfis, setPerfis] = useState([]);
+  const [grupo, setGrupo] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
   const [mostrarImport, setMostrarImport] = useState(false);
@@ -21,10 +22,13 @@ export default function PainelContas({ usuario, onSair }) {
   const ehAdmin = Boolean(meuPerfil?.admin);
   const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
 
-  // Carrega os perfis uma vez
+  // Carrega os perfis e o grupo uma vez
   useEffect(() => {
     listarPerfis()
       .then(setPerfis)
+      .catch((e) => console.error(e));
+    obterGrupo()
+      .then(setGrupo)
       .catch((e) => console.error(e));
   }, []);
 
@@ -336,6 +340,18 @@ export default function PainelContas({ usuario, onSair }) {
           ))
         )}
       </section>
+
+      {/* Código de convite (só admin) — para adicionar alguém à família */}
+      {ehAdmin && grupo?.codigo_convite && (
+        <p className="mt-2 text-center text-xs text-zinc-400 dark:text-zinc-500">
+          Código de convite da família:{" "}
+          <span className="font-mono font-semibold text-zinc-600 dark:text-zinc-300">
+            {grupo.codigo_convite}
+          </span>
+          <br />
+          Compartilhe para alguém entrar na sua família no cadastro.
+        </p>
+      )}
     </main>
   );
 }

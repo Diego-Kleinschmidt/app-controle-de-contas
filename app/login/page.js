@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 
 export default function Login() {
@@ -84,6 +85,13 @@ export default function Login() {
         >
           {carregando ? "Entrando…" : "Entrar"}
         </button>
+
+        <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+          Não tem conta?{" "}
+          <Link href="/cadastro" className="font-medium text-zinc-900 underline dark:text-zinc-100">
+            Criar conta
+          </Link>
+        </p>
       </form>
     </main>
   );
