@@ -98,6 +98,8 @@ export default function ImportarExtrato({
         data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
         responsavel_id: respPadrao,
         reembolso: Boolean(l.reembolso),
+        parcela_atual: Number(l.parcela_atual) || null,
+        parcela_total: Number(l.parcela_total) || null,
       }));
 
       // Marca os que já existem no mês (mesma data + valor + descrição).
@@ -147,6 +149,9 @@ export default function ImportarExtrato({
         valor: it.reembolso ? -it.valor : it.valor,
         data: it.data,
         responsavel_id: it.responsavel_id || null,
+        // Parcelamento: reembolso nunca é parcelado
+        parcela_atual: it.reembolso ? null : it.parcela_atual,
+        parcela_total: it.reembolso ? null : it.parcela_total,
       }));
 
     if (escolhidos.length === 0) {
@@ -233,11 +238,18 @@ export default function ImportarExtrato({
                     : "border-zinc-200 opacity-50 dark:border-zinc-800"
                 }`}
               >
-                {it.jaExiste && (
-                  <span className="mb-2 inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
-                    já lançado neste mês
-                  </span>
-                )}
+                <div className="mb-2 flex flex-wrap gap-1">
+                  {it.jaExiste && (
+                    <span className="inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                      já lançado neste mês
+                    </span>
+                  )}
+                  {!it.reembolso && it.parcela_total > 1 && (
+                    <span className="inline-block rounded bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                      parcela {it.parcela_atual}/{it.parcela_total} — as próximas vão para os meses seguintes
+                    </span>
+                  )}
+                </div>
                 <div className="mb-2 flex items-center gap-2">
                   <input
                     type="checkbox"

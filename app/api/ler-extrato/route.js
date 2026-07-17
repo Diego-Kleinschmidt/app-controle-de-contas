@@ -17,12 +17,16 @@ Extraia TODAS as movimentações: tanto COMPRAS/GASTOS quanto REEMBOLSOS/ESTORNO
 (créditos, devoluções, valores que voltam para a pessoa).
 
 Responda SOMENTE com um JSON válido neste formato exato:
-{"lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"reembolso":false}]}
+{"lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"reembolso":false,"parcela_atual":null,"parcela_total":null}]}
 
 Regras:
 - "valor" é sempre um número POSITIVO em reais (ex.: 71.90), sem "R$" e sem sinal.
 - "reembolso": true quando for estorno/reembolso/crédito/devolução; false para compras.
 - "data" no formato AAAA-MM-DD. Se o ano não aparecer, use o ano atual.
+- PARCELAMENTO: se a linha indicar parcela (ex.: "PARC 03/10", "3/10", "Parcela 3 de 10",
+  "03 DE 10"), preencha "parcela_atual" (número desta parcela, ex.: 3) e "parcela_total"
+  (total de parcelas, ex.: 10). O "valor" é o de UMA parcela (o valor que aparece na linha),
+  não o total da compra. Se NÃO for parcelado, use "parcela_atual":null e "parcela_total":null.
 - IGNORE apenas: totais, saldos, limites, juros e PAGAMENTOS de fatura.
 - Não invente nada. Se não conseguir ler, devolva {"lancamentos":[]}.`;
 
