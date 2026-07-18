@@ -8,6 +8,7 @@ import ImportarExtrato from "@/components/ImportarExtrato";
 import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
 import ConfigPermissoes from "@/components/ConfigPermissoes";
+import ConfirmarModal from "@/components/ConfirmarModal";
 import Modal from "@/components/Modal";
 
 export default function PainelContas({ usuario, onSair }) {
@@ -21,6 +22,8 @@ export default function PainelContas({ usuario, onSair }) {
   const [editando, setEditando] = useState(null);
   const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
   const [mostrarConfig, setMostrarConfig] = useState(false);
+  const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
+  const [excluindo, setExcluindo] = useState(false);
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
@@ -69,10 +72,18 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }, [carregar]);
 
-  async function removerLancamento(id) {
-    if (!confirm("Apagar este lançamento?")) return;
-    await apagar(id);
-    carregar();
+  async function confirmarExclusao() {
+    if (!aExcluir) return;
+    setExcluindo(true);
+    try {
+      await apagar(aExcluir.id);
+      setAExcluir(null);
+      carregar();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setExcluindo(false);
+    }
   }
 
   async function alternarFixado(l) {
@@ -228,6 +239,19 @@ export default function PainelContas({ usuario, onSair }) {
             📷 Importar extrato
           </button>
         </div>
+      )}
+
+      {/* Modal: confirmar exclusão */}
+      {aExcluir && (
+        <ConfirmarModal
+          titulo="Apagar lançamento?"
+          mensagem={`"${aExcluir.descricao}" — ${formatarReais(
+            Math.abs(Number(aExcluir.valor))
+          )}. Essa ação não pode ser desfeita.`}
+          carregando={excluindo}
+          onConfirmar={confirmarExclusao}
+          onCancelar={() => setAExcluir(null)}
+        />
       )}
 
       {/* Modal: configuração de permissões (só admin) */}
@@ -387,7 +411,7 @@ export default function PainelContas({ usuario, onSair }) {
                             ✏️
                           </button>
                           <button
-                            onClick={() => removerLancamento(l.id)}
+                            onClick={() => setAExcluir(l)}
                             className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
                             aria-label="Apagar"
                             title="Apagar"
