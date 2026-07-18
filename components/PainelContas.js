@@ -7,6 +7,7 @@ import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
+import ConfigPermissoes from "@/components/ConfigPermissoes";
 import Modal from "@/components/Modal";
 
 export default function PainelContas({ usuario, onSair }) {
@@ -19,21 +20,29 @@ export default function PainelContas({ usuario, onSair }) {
   const [mostrarImport, setMostrarImport] = useState(false);
   const [editando, setEditando] = useState(null);
   const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
+  const [mostrarConfig, setMostrarConfig] = useState(false);
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
   const ehAdmin = Boolean(meuPerfil?.admin);
+  // Pode lançar = admin ou pessoa liberada pelo admin (mexe só nas próprias).
+  const podeLancar = ehAdmin || Boolean(meuPerfil?.pode_lancar);
   const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
 
-  // Carrega os perfis e o grupo uma vez
-  useEffect(() => {
+  // Recarrega a lista de perfis (usado após mudar permissões)
+  const carregarPerfis = useCallback(() => {
     listarPerfis()
       .then(setPerfis)
       .catch((e) => console.error(e));
+  }, []);
+
+  // Carrega os perfis e o grupo uma vez
+  useEffect(() => {
+    carregarPerfis();
     obterGrupo()
       .then(setGrupo)
       .catch((e) => console.error(e));
-  }, []);
+  }, [carregarPerfis]);
 
   // Define a pessoa inicial assim que os perfis chegam: a própria pessoa
   // logada (se estiver na lista) ou a primeira. Sempre há alguém em foco.
@@ -110,10 +119,20 @@ export default function PainelContas({ usuario, onSair }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {ehAdmin && (
+            <button
+              onClick={() => setMostrarConfig(true)}
+              className="rounded-lg p-1.5 text-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Quem pode lançar"
+              title="Quem pode lançar"
+            >
+              ⚙️
+            </button>
+          )}
           <BotaoTema />
           <button
             onClick={onSair}
-            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-rose-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
           >
             Sair
           </button>
@@ -193,8 +212,8 @@ export default function PainelContas({ usuario, onSair }) {
         </dl>
       </section>
 
-      {/* Botões de NOVO / IMPORTAR (abrem em modal) */}
-      {ehAdmin && (
+      {/* Botões de NOVO / IMPORTAR (abrem em modal) — para quem pode lançar */}
+      {podeLancar && (
         <div className="grid grid-cols-2 gap-2">
           <button
             onClick={() => setMostrarForm(true)}
@@ -211,13 +230,26 @@ export default function PainelContas({ usuario, onSair }) {
         </div>
       )}
 
+      {/* Modal: configuração de permissões (só admin) */}
+      {ehAdmin && mostrarConfig && (
+        <Modal onClose={() => setMostrarConfig(false)}>
+          <ConfigPermissoes
+            perfis={perfis}
+            meuId={usuario.id}
+            onMudou={carregarPerfis}
+            onFechar={() => setMostrarConfig(false)}
+          />
+        </Modal>
+      )}
+
       {/* Modal: novo lançamento */}
-      {ehAdmin && mostrarForm && (
+      {podeLancar && mostrarForm && (
         <Modal onClose={() => setMostrarForm(false)}>
           <FormNovoLancamento
             mesReferencia={mes}
             perfis={perfis}
             usuarioId={usuario.id}
+            travarResponsavel={!ehAdmin}
             onSalvo={() => {
               setMostrarForm(false);
               carregar();
@@ -228,13 +260,14 @@ export default function PainelContas({ usuario, onSair }) {
       )}
 
       {/* Modal: editar lançamento */}
-      {ehAdmin && editando && (
+      {editando && (
         <Modal onClose={() => setEditando(null)}>
           <FormNovoLancamento
             key={editando.id}
             lancamento={editando}
             perfis={perfis}
             usuarioId={usuario.id}
+            travarResponsavel={!ehAdmin}
             onSalvo={() => {
               setEditando(null);
               carregar();
@@ -245,13 +278,14 @@ export default function PainelContas({ usuario, onSair }) {
       )}
 
       {/* Modal: importar extrato */}
-      {ehAdmin && mostrarImport && (
+      {podeLancar && mostrarImport && (
         <Modal onClose={() => setMostrarImport(false)}>
           <ImportarExtrato
             mesReferencia={mes}
             existentes={lista}
             perfis={perfis}
             usuarioId={usuario.id}
+            travarResponsavel={!ehAdmin}
             onSalvo={() => {
               setMostrarImport(false);
               carregar();
@@ -316,41 +350,55 @@ export default function PainelContas({ usuario, onSair }) {
                   {l.tipo === "receita" || Number(l.valor) < 0 ? "+" : "−"}{" "}
                   {formatarReais(Math.abs(Number(l.valor)))}
                 </span>
-                {ehAdmin && (
-                  <>
-                    <button
-                      onClick={() => alternarFixado(l)}
-                      className={`transition-colors ${
-                        l.fixado
-                          ? "opacity-100"
-                          : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
-                      }`}
-                      aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
-                      title={l.fixado ? "Desafixar" : "Fixar no topo"}
-                    >
-                      📌
-                    </button>
-                    <button
-                      onClick={() => {
-                        setMostrarForm(false);
-                        setEditando(l);
-                      }}
-                      className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
-                      aria-label="Editar"
-                      title="Editar"
-                    >
-                      ✏️
-                    </button>
-                    <button
-                      onClick={() => removerLancamento(l.id)}
-                      className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
-                      aria-label="Apagar"
-                      title="Apagar"
-                    >
-                      🗑️
-                    </button>
-                  </>
-                )}
+                {/* Fixar: admin ou dono da conta. Editar/apagar: admin ou quem
+                    CRIOU o lançamento (não basta estar no nome da pessoa). */}
+                {(() => {
+                  const ehMinha = l.responsavel_id === usuario.id;
+                  const euCriei = l.criado_por === usuario.id;
+                  const podeFixar = ehAdmin || ehMinha;
+                  const podeMexer = ehAdmin || (podeLancar && euCriei);
+                  return (
+                    <>
+                      {podeFixar && (
+                        <button
+                          onClick={() => alternarFixado(l)}
+                          className={`transition-colors ${
+                            l.fixado
+                              ? "opacity-100"
+                              : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
+                          }`}
+                          aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
+                          title={l.fixado ? "Desafixar" : "Fixar no topo"}
+                        >
+                          📌
+                        </button>
+                      )}
+                      {podeMexer && (
+                        <>
+                          <button
+                            onClick={() => {
+                              setMostrarForm(false);
+                              setEditando(l);
+                            }}
+                            className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                            aria-label="Editar"
+                            title="Editar"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => removerLancamento(l.id)}
+                            className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
+                            aria-label="Apagar"
+                            title="Apagar"
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </div>
           ))

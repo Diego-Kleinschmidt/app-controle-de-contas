@@ -19,6 +19,7 @@ export default function FormNovoLancamento({
   mesReferencia,
   perfis = [],
   usuarioId,
+  travarResponsavel = false, // não-admin: fixa o responsável nele mesmo
   onSalvo,
   onCancelar,
 }) {
@@ -149,21 +150,24 @@ export default function FormNovoLancamento({
         </label>
       </div>
 
-      {/* Responsável: vale para despesa e receita */}
-      <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
-        <select
-          value={responsavelId}
-          onChange={(e) => setResponsavelId(e.target.value)}
-          className={campo}
-        >
-          {perfis.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nome}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* Responsável: vale para despesa e receita.
+          Não-admin (travarResponsavel) só lança para si — sem escolher. */}
+      {!travarResponsavel && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
+          <select
+            value={responsavelId}
+            onChange={(e) => setResponsavelId(e.target.value)}
+            className={campo}
+          >
+            {perfis.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
 
       {/* Forma e parcelas: só ao criar (na edição não mexemos no parcelamento) */}
       {!edicao && (

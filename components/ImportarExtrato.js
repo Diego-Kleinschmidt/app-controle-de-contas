@@ -100,6 +100,7 @@ export default function ImportarExtrato({
   existentes,
   perfis = [],
   usuarioId,
+  travarResponsavel = false, // não-admin: tudo entra no nome dele mesmo
   onSalvo,
   onCancelar,
 }) {
@@ -293,31 +294,34 @@ export default function ImportarExtrato({
               <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
                 A IA lê seus gastos automaticamente. Você só confere e salva.
               </p>
+
+              {/* Principal: abre DIRETO na galeria/câmera (só imagem) */}
               <label className="group flex cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 py-9 text-center transition-colors hover:border-sky-400 hover:bg-sky-50 dark:border-zinc-700 dark:bg-zinc-800/40 dark:hover:border-sky-600 dark:hover:bg-sky-950/20">
                 <span className="flex h-16 w-16 items-center justify-center rounded-full bg-sky-100 text-3xl shadow-sm transition-transform group-hover:scale-110 dark:bg-sky-900/50">
-                  📤
+                  📷
                 </span>
                 <div className="flex flex-col gap-0.5">
                   <span className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
-                    Toque para escolher um arquivo
+                    Toque para tirar/escolher uma foto
                   </span>
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                    print, PDF ou arquivo do banco
+                    print ou foto do extrato/fatura
                   </span>
-                </div>
-                <div className="flex flex-wrap justify-center gap-1.5">
-                  {["🖼️ Imagem", "📄 PDF", "🏦 OFX", "📊 CSV"].map((t) => (
-                    <span
-                      key={t}
-                      className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                    >
-                      {t}
-                    </span>
-                  ))}
                 </div>
                 <input
                   type="file"
-                  accept="image/*,application/pdf,.pdf,.ofx,.csv,text/csv,text/plain"
+                  accept="image/*"
+                  onChange={aoEscolherArquivo}
+                  className="hidden"
+                />
+              </label>
+
+              {/* Secundário: enviar arquivo (PDF/OFX/CSV) — abre o gerenciador */}
+              <label className="flex cursor-pointer items-center justify-center gap-1.5 text-center text-sm text-zinc-500 underline-offset-2 hover:text-sky-600 hover:underline dark:text-zinc-400 dark:hover:text-sky-400">
+                <span>ou enviar um arquivo (PDF, OFX ou CSV)</span>
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf,.ofx,.csv,text/csv,text/plain"
                   onChange={aoEscolherArquivo}
                   className="hidden"
                 />
@@ -400,21 +404,24 @@ export default function ImportarExtrato({
                     onChange={(e) => atualizar(i, "data", e.target.value)}
                     className={campo}
                   />
-                  <select
-                    value={it.responsavel_id}
-                    onChange={(e) => atualizar(i, "responsavel_id", e.target.value)}
-                    className={campo}
-                  >
-                    {perfis.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.nome}
-                      </option>
-                    ))}
-                  </select>
+                  {/* Responsável só aparece para quem pode escolher (admin) */}
+                  {!travarResponsavel && (
+                    <select
+                      value={it.responsavel_id}
+                      onChange={(e) => atualizar(i, "responsavel_id", e.target.value)}
+                      className={campo}
+                    >
+                      {perfis.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nome}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <select
                     value={classificacaoDe(it)}
                     onChange={(e) => mudarClassificacao(i, e.target.value)}
-                    className={campo}
+                    className={`${campo}${travarResponsavel ? " col-span-2" : ""}`}
                   >
                     <option value="gasto">Gasto (saída)</option>
                     <option value="entrada">Entrada (receita)</option>
