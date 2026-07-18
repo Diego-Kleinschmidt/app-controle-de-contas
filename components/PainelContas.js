@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo } from "@/lib/lancamentos";
-import { formatarReais, rotuloMes, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
+import { formatarReais, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
+import SeletorMes from "@/components/SeletorMes";
+import BotaoTema from "@/components/BotaoTema";
 import Modal from "@/components/Modal";
 
 export default function PainelContas({ usuario, onSair }) {
@@ -107,12 +109,15 @@ export default function PainelContas({ usuario, onSair }) {
             {meuPerfil?.nome || usuario.email}
           </p>
         </div>
-        <button
-          onClick={onSair}
-          className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
-        >
-          Sair
-        </button>
+        <div className="flex items-center gap-2">
+          <BotaoTema />
+          <button
+            onClick={onSair}
+            className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+          >
+            Sair
+          </button>
+        </div>
       </header>
 
       {/* Navegação entre meses */}
@@ -124,9 +129,8 @@ export default function PainelContas({ usuario, onSair }) {
         >
           ‹
         </button>
-        <span className="font-medium text-zinc-900 dark:text-zinc-50">
-          {rotuloMes(mes)}
-        </span>
+        {/* Toque no nome do mês para escolher mês/ano num seletor no tema do app */}
+        <SeletorMes mes={mes} onEscolher={setMes} />
         <button
           onClick={() => setMes(somarMeses(mes, 1))}
           className="rounded-lg px-3 py-1 text-lg text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"

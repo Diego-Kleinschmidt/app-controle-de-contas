@@ -12,27 +12,44 @@ export const maxDuration = 60;
 // tentamos o próximo automaticamente. (Testado na conta: ambos funcionam.)
 const MODELOS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
-const INSTRUCAO = `Você recebe a imagem de um extrato ou fatura de cartão de crédito.
-Extraia TODAS as movimentações: tanto COMPRAS/GASTOS quanto REEMBOLSOS/ESTORNOS
-(créditos, devoluções, valores que voltam para a pessoa).
+const INSTRUCAO = `Você recebe um documento bancário — pode ser FATURA DE CARTÃO DE CRÉDITO
+ou EXTRATO DE CONTA CORRENTE (conta bancária) — como imagem, PDF ou texto (CSV/OFX).
+Extraia TODAS as movimentações de dinheiro: tanto SAÍDAS (gastos) quanto ENTRADAS.
 
 Responda SOMENTE com um JSON válido neste formato exato:
-{"lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"reembolso":false,"parcela_atual":null,"parcela_total":null}]}
+{"lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"tipo":"despesa","reembolso":false,"desmarcar":false,"observacao":"","parcela_atual":null,"parcela_total":null}]}
 
 Regras:
 - "valor" é sempre um número POSITIVO em reais (ex.: 71.90), sem "R$" e sem sinal.
-- "reembolso": true quando for estorno/reembolso/crédito/devolução; false para compras.
+- "tipo": "despesa" quando o dinheiro SAI (compra, pagamento, boleto, débito, PIX enviado,
+  prestação de empréstimo, tarifa, conta de água/luz/internet). "receita" quando o dinheiro
+  ENTRA (crédito, PIX recebido, salário, transferência recebida, depósito).
+- "reembolso": true SOMENTE para estorno/devolução/crédito que volta numa FATURA DE CARTÃO
+  (nesse caso "tipo":"despesa" e "reembolso":true). Nos demais casos, false.
 - "data" no formato AAAA-MM-DD. Se o ano não aparecer, use o ano atual.
-- PARCELAMENTO: se a linha indicar parcela (ex.: "PARC 03/10", "3/10", "Parcela 3 de 10",
-  "03 DE 10"), preencha "parcela_atual" (número desta parcela, ex.: 3) e "parcela_total"
-  (total de parcelas, ex.: 10). O "valor" é o de UMA parcela (o valor que aparece na linha),
-  não o total da compra. Se NÃO for parcelado, use "parcela_atual":null e "parcela_total":null.
-- IGNORE apenas: totais, saldos, limites, juros e PAGAMENTOS de fatura.
+- PARCELAMENTO: se a linha indicar parcela X de Y, preencha "parcela_atual" (X, sem zeros à
+  esquerda) e "parcela_total" (Y). Vale tanto para CARTÃO (ex.: "PARC 03/10", "3/10",
+  "Parcela 3 de 10") quanto para EMPRÉSTIMO/PRESTAÇÃO (ex.: "PREST.EMPREST 021/048" = parcela
+  21 de 48; "016/030" = 16 de 30). O "valor" é o de UMA parcela. NÃO confunda com datas
+  ("06/07" é dia/mês, não parcela). Se não for parcelado, use null nos dois.
+- "desmarcar": true quando o item PROVAVELMENTE não deve entrar na conta do mês, mas você o
+  extrai mesmo assim para o usuário decidir. Casos típicos: PAGAMENTO DE FATURA DE CARTÃO
+  (ex.: "PGT.FATURA CARTAO"), TOTAL/SALDO DA FATURA ANTERIOR do cartão, transferência entre
+  contas do PRÓPRIO titular, ou qualquer coisa que possa CONTAR EM DOBRO. Nesses casos, escreva
+  em "observacao" um motivo curto (ex.: "pagamento da fatura", "total da fatura anterior",
+  "transferência entre suas contas — pode contar em dobro"). Para lançamentos normais,
+  "desmarcar":false e "observacao":"".
+- IGNORE (não devolva): SALDO de conta corrente (saldo anterior/inicial/final da conta),
+  limites, e os TOTAIS DA FATURA ATUAL (ex.: "total desta fatura", "total a pagar", "subtotal")
+  — pois esses são a SOMA das compras que você já listou.
 - Não invente nada. Se não conseguir ler, devolva {"lancamentos":[]}.`;
 
 export async function POST(request) {
   try {
-    const { imagemBase64, mimeType } = await request.json();
+    // Aceita: arquivo binário (imagem/PDF) em base64, OU texto (CSV/OFX).
+    // "imagemBase64" é mantido por compatibilidade com versões anteriores.
+    const { base64, imagemBase64, mimeType, texto: textoArquivo } = await request.json();
+    const dadosBase64 = base64 || imagemBase64;
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -41,19 +58,17 @@ export async function POST(request) {
         { status: 500 }
       );
     }
-    if (!imagemBase64) {
-      return Response.json({ erro: "Nenhuma imagem foi enviada." }, { status: 400 });
+    if (!dadosBase64 && !textoArquivo) {
+      return Response.json({ erro: "Nenhum arquivo foi enviado." }, { status: 400 });
     }
 
+    // Monta a parte de conteúdo conforme o tipo: texto direto, ou arquivo embutido.
+    const partesConteudo = textoArquivo
+      ? [{ text: `Conteúdo do extrato/fatura (arquivo de texto, CSV ou OFX):\n${textoArquivo}` }]
+      : [{ inline_data: { mime_type: mimeType || "image/png", data: dadosBase64 } }];
+
     const corpo = {
-      contents: [
-        {
-          parts: [
-            { text: INSTRUCAO },
-            { inline_data: { mime_type: mimeType || "image/png", data: imagemBase64 } },
-          ],
-        },
-      ],
+      contents: [{ parts: [{ text: INSTRUCAO }, ...partesConteudo] }],
       generationConfig: { responseMimeType: "application/json" },
     };
 

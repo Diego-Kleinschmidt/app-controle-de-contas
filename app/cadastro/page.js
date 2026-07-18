@@ -29,7 +29,7 @@ export default function Cadastro() {
     });
     if (!valido) {
       setCarregando(false);
-      setErro("Código de convite inválido. Você precisa de um código para se cadastrar.");
+      setErro("Código de convite inválido.");
       return;
     }
 

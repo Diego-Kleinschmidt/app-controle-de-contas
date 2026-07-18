@@ -39,6 +39,50 @@ function prepararImagem(arquivo, maxLado = 2000) {
   });
 }
 
+// Lê um arquivo binário (PDF) como base64 puro (sem o prefixo "data:...").
+function lerComoBase64(arquivo) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(",")[1]);
+    r.onerror = reject;
+    r.readAsDataURL(arquivo);
+  });
+}
+
+// Lê um arquivo de texto (CSV/OFX/TXT) como string.
+function lerComoTexto(arquivo) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsText(arquivo);
+  });
+}
+
+// Descobre o tipo do arquivo escolhido: imagem, pdf ou texto (csv/ofx/txt).
+function tipoDoArquivo(arquivo) {
+  const nome = (arquivo.name || "").toLowerCase();
+  const mime = arquivo.type || "";
+  if (mime.startsWith("image/")) return "imagem";
+  if (mime === "application/pdf" || nome.endsWith(".pdf")) return "pdf";
+  return "texto"; // csv, ofx, txt (costumam vir sem mime confiável)
+}
+
+// Monta o corpo (body) que será enviado para a API, conforme o tipo do arquivo.
+async function prepararEnvio(arquivo) {
+  const tipo = tipoDoArquivo(arquivo);
+  if (tipo === "imagem") {
+    const { base64, mimeType } = await prepararImagem(arquivo);
+    return { base64, mimeType };
+  }
+  if (tipo === "pdf") {
+    const base64 = await lerComoBase64(arquivo);
+    return { base64, mimeType: "application/pdf" };
+  }
+  const texto = await lerComoTexto(arquivo);
+  return { texto };
+}
+
 // Converte um número para o texto da máscara: 71.9 -> "71,90"
 function valorMascara(n) {
   return formatarComoMoeda(String(Math.round(Number(n) * 100)));
@@ -80,27 +124,36 @@ export default function ImportarExtrato({
     const controlador = new AbortController();
     controladorRef.current = controlador;
     try {
-      const { base64, mimeType } = await prepararImagem(arquivo);
+      const envio = await prepararEnvio(arquivo);
       const resposta = await fetch("/api/ler-extrato", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imagemBase64: base64, mimeType }),
+        body: JSON.stringify(envio),
         signal: controlador.signal,
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
 
       const respPadrao = usuarioId ?? perfis[0]?.id ?? "";
-      const lidos = (dados.lancamentos || []).map((l) => ({
-        descricao: l.descricao || "",
-        valor: Math.abs(Number(l.valor)) || 0,
-        // Extrato costuma vir sem ano — corrigimos pelo mês que está sendo visto
-        data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
-        responsavel_id: respPadrao,
-        reembolso: Boolean(l.reembolso),
-        parcela_atual: Number(l.parcela_atual) || null,
-        parcela_total: Number(l.parcela_total) || null,
-      }));
+      const lidos = (dados.lancamentos || []).map((l) => {
+        const ehReceita = l.tipo === "receita";
+        return {
+          descricao: l.descricao || "",
+          valor: Math.abs(Number(l.valor)) || 0,
+          // Extrato costuma vir sem ano — corrigimos pelo mês que está sendo visto
+          data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
+          responsavel_id: respPadrao,
+          tipo: ehReceita ? "receita" : "despesa",
+          // reembolso só faz sentido para despesa (estorno de cartão)
+          reembolso: !ehReceita && Boolean(l.reembolso),
+          // A IA sugere desmarcar itens que podem contar em dobro (pagamento de
+          // fatura, saldo anterior, transferência sua...) e explica em "observacao".
+          desmarcar: Boolean(l.desmarcar),
+          observacao: String(l.observacao || ""),
+          parcela_atual: Number(l.parcela_atual) || null,
+          parcela_total: Number(l.parcela_total) || null,
+        };
+      });
 
       // Marca os que já existem no mês (mesma data + valor + descrição).
       // Usa contagem, para o caso de haver itens realmente iguais repetidos.
@@ -117,11 +170,12 @@ export default function ImportarExtrato({
           jaExiste = true;
           contagem[k] -= 1;
         }
-        return { ...it, jaExiste, incluir: !jaExiste };
+        // Vem desmarcado se já existe, ou se a IA sugeriu desmarcar
+        return { ...it, jaExiste, incluir: !jaExiste && !it.desmarcar };
       });
 
       if (comDedup.length === 0) {
-        setErro("Não identifiquei gastos nessa imagem. Tente um print mais nítido.");
+        setErro("Não identifiquei lançamentos nesse arquivo. Tente um print mais nítido ou outro arquivo.");
       } else {
         setItens(comDedup);
       }
@@ -140,19 +194,41 @@ export default function ImportarExtrato({
     );
   }
 
+  // Valor do seletor Gasto / Entrada / Reembolso a partir do item
+  function classificacaoDe(it) {
+    if (it.tipo === "receita") return "entrada";
+    return it.reembolso ? "reembolso" : "gasto";
+  }
+
+  // Troca a classificação, ajustando "tipo" e "reembolso" de uma vez
+  function mudarClassificacao(i, valor) {
+    setItens((atual) =>
+      atual.map((it, idx) => {
+        if (idx !== i) return it;
+        if (valor === "entrada") return { ...it, tipo: "receita", reembolso: false };
+        if (valor === "reembolso") return { ...it, tipo: "despesa", reembolso: true };
+        return { ...it, tipo: "despesa", reembolso: false }; // gasto
+      })
+    );
+  }
+
   async function salvar() {
     const escolhidos = itens
       .filter((it) => it.incluir && it.valor > 0 && it.descricao.trim())
-      .map((it) => ({
-        descricao: it.descricao.trim(),
-        // Reembolso entra como valor NEGATIVO (abate das contas do mês)
-        valor: it.reembolso ? -it.valor : it.valor,
-        data: it.data,
-        responsavel_id: it.responsavel_id || null,
-        // Parcelamento: reembolso nunca é parcelado
-        parcela_atual: it.reembolso ? null : it.parcela_atual,
-        parcela_total: it.reembolso ? null : it.parcela_total,
-      }));
+      .map((it) => {
+        const ehReceita = it.tipo === "receita";
+        return {
+          descricao: it.descricao.trim(),
+          tipo: ehReceita ? "receita" : "despesa",
+          // Reembolso entra como valor NEGATIVO (abate das contas do mês)
+          valor: it.reembolso ? -it.valor : it.valor,
+          data: it.data,
+          responsavel_id: it.responsavel_id || null,
+          // Parcelamento só para gasto comum (nem receita, nem reembolso)
+          parcela_atual: ehReceita || it.reembolso ? null : it.parcela_atual,
+          parcela_total: ehReceita || it.reembolso ? null : it.parcela_total,
+        };
+      });
 
     if (escolhidos.length === 0) {
       setErro("Marque ao menos um item para salvar.");
@@ -170,47 +246,84 @@ export default function ImportarExtrato({
     }
   }
 
-  // Total: gastos somam, reembolsos abatem
-  const total = itens
-    ? itens
-        .filter((it) => it.incluir)
-        .reduce((s, it) => s + (it.reembolso ? -it.valor : it.valor), 0)
-    : 0;
+  // Totais separados: gastos (reembolsos abatem) e entradas (receitas)
+  const selecionados = itens ? itens.filter((it) => it.incluir) : [];
+  const totalGastos = selecionados
+    .filter((it) => it.tipo !== "receita")
+    .reduce((s, it) => s + (it.reembolso ? -it.valor : it.valor), 0);
+  const totalEntradas = selecionados
+    .filter((it) => it.tipo === "receita")
+    .reduce((s, it) => s + it.valor, 0);
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-          📷 Importar do extrato
+          📷 Importar extrato
         </h2>
         {onCancelar && (
           <button
             onClick={onCancelar}
-            className="text-sm text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+            className="rounded-lg border border-zinc-300 px-3 py-1 text-sm font-medium text-zinc-600 transition-colors hover:border-rose-300 hover:bg-rose-50 hover:text-rose-600 dark:border-zinc-700 dark:text-zinc-300 dark:hover:border-rose-800 dark:hover:bg-rose-950/40 dark:hover:text-rose-300"
           >
             Fechar
           </button>
         )}
       </div>
 
-      {/* Passo 1: enviar a imagem (some depois que a IA lê) */}
+      {/* Passo 1: enviar o arquivo (some depois que a IA lê) */}
       {!itens && (
         <>
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            Envie um print do extrato/fatura. A IA vai ler os gastos e você revisa
-            antes de salvar.
-          </p>
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-950">
-            <span className="text-3xl">🖼️</span>
-            <span>{carregando ? "Lendo a imagem…" : "Toque para escolher a imagem"}</span>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={aoEscolherArquivo}
-              disabled={carregando}
-              className="hidden"
-            />
-          </label>
+          {carregando ? (
+            // Estado de leitura em DESTAQUE (a IA pode levar alguns segundos)
+            <div className="flex flex-col items-center gap-4 rounded-xl border-2 border-dashed border-sky-400 bg-sky-50 py-12 text-center dark:border-sky-700 dark:bg-sky-950/40">
+              <span className="text-5xl motion-safe:animate-bounce">🤖</span>
+              <div className="flex flex-col items-center gap-1">
+                <span className="text-xl font-bold text-sky-700 dark:text-sky-300">
+                  Lendo o arquivo…
+                </span>
+                <span className="text-sm text-sky-600 dark:text-sky-400">
+                  A IA está analisando. Aguarde uns segundos.
+                </span>
+              </div>
+              <span className="h-9 w-9 animate-spin rounded-full border-4 border-sky-200 border-t-sky-500 dark:border-sky-900 dark:border-t-sky-400" />
+            </div>
+          ) : (
+            <>
+              <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
+                A IA lê seus gastos automaticamente. Você só confere e salva.
+              </p>
+              <label className="group flex cursor-pointer flex-col items-center gap-4 rounded-2xl border-2 border-dashed border-zinc-300 bg-zinc-50 px-6 py-9 text-center transition-colors hover:border-sky-400 hover:bg-sky-50 dark:border-zinc-700 dark:bg-zinc-800/40 dark:hover:border-sky-600 dark:hover:bg-sky-950/20">
+                <span className="flex h-16 w-16 items-center justify-center rounded-full bg-sky-100 text-3xl shadow-sm transition-transform group-hover:scale-110 dark:bg-sky-900/50">
+                  📤
+                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-base font-semibold text-zinc-800 dark:text-zinc-100">
+                    Toque para escolher um arquivo
+                  </span>
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                    print, PDF ou arquivo do banco
+                  </span>
+                </div>
+                <div className="flex flex-wrap justify-center gap-1.5">
+                  {["🖼️ Imagem", "📄 PDF", "🏦 OFX", "📊 CSV"].map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf,.pdf,.ofx,.csv,text/csv,text/plain"
+                  onChange={aoEscolherArquivo}
+                  className="hidden"
+                />
+              </label>
+            </>
+          )}
         </>
       )}
 
@@ -225,7 +338,7 @@ export default function ImportarExtrato({
                 estava(m) lançado(s) e foi(ram) pré-desmarcado(s).{" "}
               </>
             )}
-            Confira, marque de quem é (gasto ou reembolso) e ajuste o que quiser.
+            Confira, marque de quem é e o tipo (gasto, entrada ou reembolso) e ajuste o que quiser.
           </p>
 
           <div className="flex flex-col gap-3">
@@ -242,6 +355,11 @@ export default function ImportarExtrato({
                   {it.jaExiste && (
                     <span className="inline-block rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
                       já lançado neste mês
+                    </span>
+                  )}
+                  {it.desmarcar && !it.jaExiste && (
+                    <span className="inline-block rounded bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      desmarcado{it.observacao ? `: ${it.observacao}` : " (confira antes de incluir)"}
                     </span>
                   )}
                   {!it.reembolso && it.parcela_total > 1 && (
@@ -294,11 +412,12 @@ export default function ImportarExtrato({
                     ))}
                   </select>
                   <select
-                    value={it.reembolso ? "reembolso" : "gasto"}
-                    onChange={(e) => atualizar(i, "reembolso", e.target.value === "reembolso")}
+                    value={classificacaoDe(it)}
+                    onChange={(e) => mudarClassificacao(i, e.target.value)}
                     className={campo}
                   >
-                    <option value="gasto">Gasto</option>
+                    <option value="gasto">Gasto (saída)</option>
+                    <option value="entrada">Entrada (receita)</option>
                     <option value="reembolso">Reembolso</option>
                   </select>
                 </div>
@@ -306,11 +425,21 @@ export default function ImportarExtrato({
             ))}
           </div>
 
-          <div className="flex items-center justify-between border-t border-zinc-200 pt-3 dark:border-zinc-800">
-            <span className="text-sm text-zinc-500 dark:text-zinc-400">Total selecionado</span>
-            <span className="font-semibold text-zinc-900 dark:text-zinc-50">
-              {formatarReais(total)}
-            </span>
+          <div className="flex flex-col gap-1 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">Gastos selecionados</span>
+              <span className="font-semibold text-rose-600 dark:text-rose-400">
+                {formatarReais(totalGastos)}
+              </span>
+            </div>
+            {totalEntradas > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-zinc-500 dark:text-zinc-400">Entradas selecionadas</span>
+                <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                  {formatarReais(totalEntradas)}
+                </span>
+              </div>
+            )}
           </div>
         </>
       )}
