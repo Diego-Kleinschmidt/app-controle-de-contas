@@ -52,7 +52,8 @@ export default function Cadastro() {
   return (
     <main className="flex flex-1 flex-col items-center justify-center gap-8 bg-zinc-50 px-6 py-16 dark:bg-zinc-950">
       <div className="flex flex-col items-center gap-2 text-center">
-        <span className="text-5xl">💰</span>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/icone.png" alt="" className="h-14 w-14 object-contain" />
         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
           Criar conta
         </h1>

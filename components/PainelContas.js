@@ -146,8 +146,10 @@ export default function PainelContas({ usuario, onSair }) {
       {/* Cabeçalho */}
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-            💰 Controle de Contas
+          <h1 className="flex items-center gap-1.5 text-xl font-bold text-zinc-900 dark:text-zinc-50">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/icone.png" alt="" className="h-7 w-7 object-contain" />
+            Controle de Contas
           </h1>
           <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {meuPerfil?.nome || usuario.email}
