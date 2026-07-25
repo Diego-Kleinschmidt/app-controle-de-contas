@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
+import { listarPorMes, apagar, apagarSerie, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
 import { formatarReais, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
@@ -34,6 +34,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [mostrarConfig, setMostrarConfig] = useState(false);
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
+  const [busca, setBusca] = useState(""); // filtro por nome/valor (conforme digita)
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
@@ -82,11 +83,20 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }, [carregar]);
 
-  async function confirmarExclusao() {
+  // modo: "um" (só este) ou "serie" (todos da recorrência/parcelamento)
+  async function confirmarExclusao(modo) {
     if (!aExcluir) return;
     setExcluindo(true);
     try {
-      await apagar(aExcluir.id);
+      if (modo === "serie") {
+        await apagarSerie({
+          descricao: aExcluir.descricao,
+          responsavel_id: aExcluir.responsavel_id,
+          forma: aExcluir.forma,
+        });
+      } else {
+        await apagar(aExcluir.id);
+      }
       setAExcluir(null);
       carregar();
     } catch (e) {
@@ -139,6 +149,16 @@ export default function PainelContas({ usuario, onSair }) {
   const listaOrdenada = [...contasNormais].sort((a, b) => {
     if (Boolean(a.fixado) !== Boolean(b.fixado)) return a.fixado ? -1 : 1;
     return 0;
+  });
+
+  // Filtro de busca (por nome ou valor), aplicado conforme digita
+  const termoBusca = busca.trim().toLowerCase();
+  const listaExibida = listaOrdenada.filter((l) => {
+    if (!termoBusca) return true;
+    const nome = (l.descricao || "").toLowerCase();
+    const abs = Math.abs(Number(l.valor));
+    const valorTexto = `${abs.toFixed(2).replace(".", ",")} ${formatarReais(abs)}`.toLowerCase();
+    return nome.includes(termoBusca) || valorTexto.includes(termoBusca);
   });
 
   return (
@@ -378,18 +398,35 @@ export default function PainelContas({ usuario, onSair }) {
         </div>
       )}
 
-      {/* Modal: confirmar exclusão */}
-      {aExcluir && (
-        <ConfirmarModal
-          titulo="Apagar lançamento?"
-          mensagem={`"${aExcluir.descricao}" — ${formatarReais(
-            Math.abs(Number(aExcluir.valor))
-          )}. Essa ação não pode ser desfeita.`}
-          carregando={excluindo}
-          onConfirmar={confirmarExclusao}
-          onCancelar={() => setAExcluir(null)}
-        />
-      )}
+      {/* Modal: confirmar exclusão (com opção de série para recorrente/parcelada) */}
+      {aExcluir &&
+        (() => {
+          const ehSerie =
+            aExcluir.forma === "recorrente" || aExcluir.forma === "parcelada";
+          const nomeSerie =
+            aExcluir.forma === "parcelada" ? "as parcelas" : "os meses";
+          const acoes = ehSerie
+            ? [
+                { label: "Apagar só este mês", onClick: () => confirmarExclusao("um"), perigo: true },
+                { label: `Apagar todos ${nomeSerie}`, onClick: () => confirmarExclusao("serie"), perigo: true },
+              ]
+            : [{ label: "Apagar", onClick: () => confirmarExclusao("um"), perigo: true }];
+          return (
+            <ConfirmarModal
+              titulo={ehSerie ? "Apagar recorrência?" : "Apagar lançamento?"}
+              mensagem={
+                ehSerie
+                  ? `"${aExcluir.descricao}" se repete em vários meses. Quer apagar só este mês ou ${nomeSerie === "as parcelas" ? "todas as parcelas" : "todos os meses"}?`
+                  : `"${aExcluir.descricao}" — ${formatarReais(
+                      Math.abs(Number(aExcluir.valor))
+                    )}. Essa ação não pode ser desfeita.`
+              }
+              acoes={acoes}
+              carregando={excluindo}
+              onCancelar={() => setAExcluir(null)}
+            />
+          );
+        })()}
 
       {/* Modal: configuração de permissões (só admin) */}
       {ehAdmin && mostrarConfig && (
@@ -458,6 +495,31 @@ export default function PainelContas({ usuario, onSair }) {
 
       {/* Lista de lançamentos do mês */}
       <section className="flex flex-col gap-2">
+        {/* Busca por nome ou valor (filtra conforme digita) */}
+        {contasNormais.length > 0 && (
+          <div className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-zinc-400">
+              🔍
+            </span>
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar lançamentos"
+              className="w-full min-w-0 rounded-lg border border-zinc-300 bg-white py-2 pl-9 pr-9 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+            />
+            {busca && (
+              <button
+                onClick={() => setBusca("")}
+                className="absolute inset-y-0 right-2 flex items-center px-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+                aria-label="Limpar busca"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
+
         <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
           Lançamentos
         </h2>
@@ -470,8 +532,12 @@ export default function PainelContas({ usuario, onSair }) {
           <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
             Nenhum lançamento nesta visão. 👆
           </p>
+        ) : listaExibida.length === 0 ? (
+          <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
+            Nada encontrado para “{busca}”.
+          </p>
         ) : (
-          listaOrdenada.map((l) => (
+          listaExibida.map((l) => (
             <div
               key={l.id}
               className={`flex items-center justify-between rounded-xl border bg-white px-4 py-3 dark:bg-zinc-900 ${

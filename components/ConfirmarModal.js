@@ -3,12 +3,13 @@
 import Modal from "@/components/Modal";
 
 // Janela de confirmação bonita (substitui o confirm() feio do navegador).
+// "acoes" é a lista de botões de ação (além do Cancelar). Cada ação:
+//   { label, onClick, perigo? }  (perigo = botão vermelho)
 export default function ConfirmarModal({
   titulo,
   mensagem,
-  textoConfirmar = "Apagar",
+  acoes = [],
   carregando = false,
-  onConfirmar,
   onCancelar,
 }) {
   return (
@@ -24,20 +25,27 @@ export default function ConfirmarModal({
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        <div className="flex flex-col gap-2">
+          {acoes.map((a, i) => (
+            <button
+              key={i}
+              onClick={a.onClick}
+              disabled={carregando}
+              className={`rounded-lg px-4 py-2.5 font-medium transition-colors disabled:opacity-60 ${
+                a.perigo
+                  ? "bg-rose-600 text-white hover:bg-rose-700"
+                  : "border border-zinc-300 text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              }`}
+            >
+              {carregando ? "Apagando…" : a.label}
+            </button>
+          ))}
           <button
             onClick={onCancelar}
             disabled={carregando}
-            className="rounded-lg border border-zinc-300 px-4 py-2.5 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            className="rounded-lg px-4 py-2.5 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             Cancelar
-          </button>
-          <button
-            onClick={onConfirmar}
-            disabled={carregando}
-            className="rounded-lg bg-rose-600 px-4 py-2.5 font-medium text-white transition-colors hover:bg-rose-700 disabled:opacity-60"
-          >
-            {carregando ? "Apagando…" : textoConfirmar}
           </button>
         </div>
       </div>
