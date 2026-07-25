@@ -89,11 +89,7 @@ export default function PainelContas({ usuario, onSair }) {
     setExcluindo(true);
     try {
       if (modo === "serie") {
-        await apagarSerie({
-          descricao: aExcluir.descricao,
-          responsavel_id: aExcluir.responsavel_id,
-          forma: aExcluir.forma,
-        });
+        await apagarSerie(aExcluir);
       } else {
         await apagar(aExcluir.id);
       }
@@ -116,9 +112,9 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }
 
-  // Lista conforme o filtro (todos ou um usuário específico)
+  // Lista conforme o filtro (sempre uma pessoa; "" só antes dos perfis carregarem)
   const listaFiltrada = lista.filter((l) => {
-    if (!filtro || filtro === "todos") return true; // "" = antes dos perfis carregarem
+    if (!filtro) return true;
     return l.responsavel_id === filtro;
   });
 
@@ -140,10 +136,9 @@ export default function PainelContas({ usuario, onSair }) {
     .filter((l) => !l.recebido)
     .reduce((s, l) => s + Math.abs(Number(l.valor)), 0);
 
-  const rotuloHero =
-    !filtro || filtro === "todos"
-      ? "Contas do mês (até agora)"
-      : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
+  const rotuloHero = !filtro
+    ? "Contas do mês (até agora)"
+    : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
 
   // Fixados sempre no topo (mantendo a ordem por data dentro de cada grupo)
   const listaOrdenada = [...contasNormais].sort((a, b) => {
@@ -403,12 +398,10 @@ export default function PainelContas({ usuario, onSair }) {
         (() => {
           const ehSerie =
             aExcluir.forma === "recorrente" || aExcluir.forma === "parcelada";
-          const nomeSerie =
-            aExcluir.forma === "parcelada" ? "as parcelas" : "os meses";
           const acoes = ehSerie
             ? [
                 { label: "Apagar só este mês", onClick: () => confirmarExclusao("um"), perigo: true },
-                { label: `Apagar todos ${nomeSerie}`, onClick: () => confirmarExclusao("serie"), perigo: true },
+                { label: "Apagar deste mês em diante", onClick: () => confirmarExclusao("serie"), perigo: true },
               ]
             : [{ label: "Apagar", onClick: () => confirmarExclusao("um"), perigo: true }];
           return (
@@ -416,7 +409,7 @@ export default function PainelContas({ usuario, onSair }) {
               titulo={ehSerie ? "Apagar recorrência?" : "Apagar lançamento?"}
               mensagem={
                 ehSerie
-                  ? `"${aExcluir.descricao}" se repete em vários meses. Quer apagar só este mês ou ${nomeSerie === "as parcelas" ? "todas as parcelas" : "todos os meses"}?`
+                  ? `"${aExcluir.descricao}" se repete em vários meses. Quer apagar só este mês ou deste mês em diante? Os meses anteriores ficam.`
                   : `"${aExcluir.descricao}" — ${formatarReais(
                       Math.abs(Number(aExcluir.valor))
                     )}. Essa ação não pode ser desfeita.`
@@ -447,6 +440,7 @@ export default function PainelContas({ usuario, onSair }) {
             mesReferencia={mes}
             perfis={perfis}
             usuarioId={usuario.id}
+            responsavelPadrao={filtro || usuario.id}
             travarResponsavel={!ehAdmin}
             onSalvo={() => {
               setMostrarForm(false);

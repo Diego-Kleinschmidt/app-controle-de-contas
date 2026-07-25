@@ -19,6 +19,7 @@ export default function FormNovoLancamento({
   mesReferencia,
   perfis = [],
   usuarioId,
+  responsavelPadrao, // pessoa em foco na tela (padrão do "de quem é" ao criar)
   travarResponsavel = false, // não-admin: fixa o responsável nele mesmo
   onSalvo,
   onCancelar,
@@ -30,7 +31,7 @@ export default function FormNovoLancamento({
   const [valor, setValor] = useState(valorInicial(lancamento));
   const [data, setData] = useState((lancamento?.data ?? "").slice(0, 10) || hojeISO());
   const [responsavelId, setResponsavelId] = useState(
-    lancamento?.responsavel_id ?? usuarioId ?? perfis[0]?.id ?? ""
+    lancamento?.responsavel_id ?? responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? ""
   );
   const [forma, setForma] = useState("unica");
   const [parcelaTotal, setParcelaTotal] = useState("");
@@ -45,7 +46,6 @@ export default function FormNovoLancamento({
   // É uma edição de algo que se repete (recorrente/parcelada)?
   const ehSerieEdit =
     edicao && (lancamento?.forma === "recorrente" || lancamento?.forma === "parcelada");
-  const rotuloSerie = lancamento?.forma === "parcelada" ? "as parcelas" : "os meses";
 
   function validar() {
     if (!descricao.trim()) return "Escreva uma descrição.";
@@ -319,7 +319,7 @@ export default function FormNovoLancamento({
             disabled={salvando}
             className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            {salvando ? "Salvando…" : `Todos ${rotuloSerie}`}
+            {salvando ? "Salvando…" : "Deste mês em diante"}
           </button>
           <button
             type="button"

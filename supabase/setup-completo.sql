@@ -58,6 +58,7 @@ create table if not exists public.lancamentos (
   criado_por     uuid references auth.users(id),  -- quem lançou (autoria)
   terceiro       text,                            -- conta "a receber": paguei por outra pessoa
   recebido       boolean not null default false,  -- a pessoa já me pagou de volta?
+  serie_id       uuid,                            -- agrupa as linhas de uma série (recorrente/parcelada)
   fixado         boolean not null default false,
   forma          text not null default 'unica'
                    check (forma in ('unica','recorrente','parcelada')),

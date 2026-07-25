@@ -27,6 +27,7 @@ desenvolvimento. Servem só como registro — o `setup-completo.sql` já reúne 
 5. `permissoes.sql` — coluna `pode_lancar` (admin libera quem pode lançar)
 6. `criado-por.sql` — autoria (`criado_por`): editar só o que a pessoa lançou
 7. `a-receber.sql` — colunas `terceiro`/`recebido`: contas pagas por outros
+8. `serie-id.sql` — coluna `serie_id`: identifica cada série (recorrente/parcelada)
 
 ## Utilitário
 
