@@ -26,3 +26,9 @@ desenvolvimento. Servem só como registro — o `setup-completo.sql` já reúne 
 4. `multi-familias.sql` — grupos (multi-família), código mestre e de convite
 5. `permissoes.sql` — coluna `pode_lancar` (admin libera quem pode lançar)
 6. `criado-por.sql` — autoria (`criado_por`): editar só o que a pessoa lançou
+7. `a-receber.sql` — colunas `terceiro`/`recebido`: contas pagas por outros
+
+## Utilitário
+
+- `limpar-lancamentos.sql` — apaga só os lançamentos (para começar do zero),
+  mantendo usuários, famílias e permissões.

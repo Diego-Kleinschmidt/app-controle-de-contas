@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo } from "@/lib/lancamentos";
+import { listarPorMes, apagar, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
 import { formatarReais, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
@@ -9,7 +9,17 @@ import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
 import ConfigPermissoes from "@/components/ConfigPermissoes";
 import ConfirmarModal from "@/components/ConfirmarModal";
+import Aviso from "@/components/Aviso";
 import Modal from "@/components/Modal";
+
+// Aviso mostrado ao abrir o app. Para trocar por um novo aviso no futuro,
+// mude o "id" (senão quem já leu o antigo não verá o novo).
+const AVISO_ATUAL = {
+  id: "inicio-real-2026-07",
+  titulo: "Tudo pronto para começar! 🎉",
+  texto:
+    "Limpamos os dados de teste — agora é pra valer. Pode lançar suas contas de verdade.",
+};
 
 export default function PainelContas({ usuario, onSair }) {
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
@@ -91,20 +101,34 @@ export default function PainelContas({ usuario, onSair }) {
     carregar();
   }
 
+  async function alternarRecebido(l) {
+    await marcarRecebido(l.id, !l.recebido);
+    carregar();
+  }
+
   // Lista conforme o filtro (todos ou um usuário específico)
   const listaFiltrada = lista.filter((l) => {
     if (!filtro || filtro === "todos") return true; // "" = antes dos perfis carregarem
     return l.responsavel_id === filtro;
   });
 
-  // Somatórios do que está visível
-  const despesasVisiveis = listaFiltrada
+  // Separa as contas normais das "a receber" (paguei por outra pessoa)
+  const contasNormais = listaFiltrada.filter((l) => !l.terceiro);
+  const contasAReceber = listaFiltrada.filter((l) => l.terceiro);
+
+  // Somatórios do que está visível (só contas normais; "a receber" não conta)
+  const despesasVisiveis = contasNormais
     .filter((l) => l.tipo === "despesa")
     .reduce((s, l) => s + Number(l.valor), 0);
-  const receitasVisiveis = listaFiltrada
+  const receitasVisiveis = contasNormais
     .filter((l) => l.tipo === "receita")
     .reduce((s, l) => s + Number(l.valor), 0);
   const saldoVisivel = receitasVisiveis - despesasVisiveis;
+
+  // Total ainda a receber (contas de terceiros que não foram pagas de volta)
+  const totalAReceber = contasAReceber
+    .filter((l) => !l.recebido)
+    .reduce((s, l) => s + Math.abs(Number(l.valor)), 0);
 
   const rotuloHero =
     !filtro || filtro === "todos"
@@ -112,7 +136,7 @@ export default function PainelContas({ usuario, onSair }) {
       : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
 
   // Fixados sempre no topo (mantendo a ordem por data dentro de cada grupo)
-  const listaOrdenada = [...listaFiltrada].sort((a, b) => {
+  const listaOrdenada = [...contasNormais].sort((a, b) => {
     if (Boolean(a.fixado) !== Boolean(b.fixado)) return a.fixado ? -1 : 1;
     return 0;
   });
@@ -149,6 +173,9 @@ export default function PainelContas({ usuario, onSair }) {
           </button>
         </div>
       </header>
+
+      {/* Aviso ao abrir (fecha e não volta) */}
+      <Aviso id={AVISO_ATUAL.id} titulo={AVISO_ATUAL.titulo} texto={AVISO_ATUAL.texto} />
 
       {/* Navegação entre meses */}
       <div className="flex items-center justify-between rounded-xl border border-zinc-200 bg-white px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900">
@@ -222,6 +249,114 @@ export default function PainelContas({ usuario, onSair }) {
           )}
         </dl>
       </section>
+
+      {/* A receber: contas que a pessoa pagou por outros (não entram nas contas dela) */}
+      {contasAReceber.length > 0 && (
+        <section className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50/50 p-4 dark:border-amber-900/50 dark:bg-amber-950/20">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
+              💰 A receber
+            </h2>
+            <span className="text-sm font-semibold text-amber-700 dark:text-amber-400">
+              {formatarReais(totalAReceber)}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            Você pagou por outras pessoas. Não entra nas suas contas — marque ✅ quando te pagarem.
+          </p>
+
+          {Object.entries(
+            contasAReceber.reduce((acc, l) => {
+              (acc[l.terceiro] ||= []).push(l);
+              return acc;
+            }, {})
+          ).map(([nome, itens]) => {
+            const subtotal = itens
+              .filter((x) => !x.recebido)
+              .reduce((s, x) => s + Math.abs(Number(x.valor)), 0);
+            return (
+              <div
+                key={nome}
+                className="flex flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-900"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-zinc-900 dark:text-zinc-50">{nome}</span>
+                  <span className="text-sm font-semibold text-amber-600 dark:text-amber-400">
+                    {subtotal > 0 ? formatarReais(subtotal) : "tudo acertado ✅"}
+                  </span>
+                </div>
+
+                {itens.map((l) => {
+                  const euCriei = l.criado_por === usuario.id;
+                  const podeMexer = ehAdmin || (podeLancar && euCriei);
+                  return (
+                    <div
+                      key={l.id}
+                      className={`flex items-center justify-between gap-2 border-t border-zinc-100 pt-1.5 dark:border-zinc-800 ${
+                        l.recebido ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <p
+                          className={`truncate text-sm text-zinc-700 dark:text-zinc-300 ${
+                            l.recebido ? "line-through" : ""
+                          }`}
+                        >
+                          {l.descricao}
+                        </p>
+                        <p className="text-xs text-zinc-400 dark:text-zinc-500">
+                          {formatarDataBR(l.data)}
+                          {l.recebido && " • recebido"}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-3 pl-2">
+                        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                          {formatarReais(Math.abs(Number(l.valor)))}
+                        </span>
+                        {podeMexer && (
+                          <>
+                            <button
+                              onClick={() => alternarRecebido(l)}
+                              className={`transition-colors ${
+                                l.recebido
+                                  ? "opacity-100"
+                                  : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
+                              }`}
+                              aria-label={l.recebido ? "Marcar como não recebido" : "Marcar como recebido"}
+                              title={l.recebido ? "Marcar como não recebido" : "Marcar como recebido"}
+                            >
+                              ✅
+                            </button>
+                            <button
+                              onClick={() => {
+                                setMostrarForm(false);
+                                setEditando(l);
+                              }}
+                              className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                              aria-label="Editar"
+                              title="Editar"
+                            >
+                              ✏️
+                            </button>
+                            <button
+                              onClick={() => setAExcluir(l)}
+                              className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
+                              aria-label="Apagar"
+                              title="Apagar"
+                            >
+                              🗑️
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {/* Botões de NOVO / IMPORTAR (abrem em modal) — para quem pode lançar */}
       {podeLancar && (
@@ -329,7 +464,7 @@ export default function PainelContas({ usuario, onSair }) {
           <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">
             Carregando…
           </p>
-        ) : listaFiltrada.length === 0 ? (
+        ) : contasNormais.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
             Nenhum lançamento nesta visão. 👆
           </p>

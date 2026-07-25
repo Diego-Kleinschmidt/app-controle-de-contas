@@ -56,6 +56,8 @@ create table if not exists public.lancamentos (
   mes_referencia text not null,                   -- ex.: "2026-07"
   responsavel_id uuid references public.perfis(id),
   criado_por     uuid references auth.users(id),  -- quem lançou (autoria)
+  terceiro       text,                            -- conta "a receber": paguei por outra pessoa
+  recebido       boolean not null default false,  -- a pessoa já me pagou de volta?
   fixado         boolean not null default false,
   forma          text not null default 'unica'
                    check (forma in ('unica','recorrente','parcelada')),

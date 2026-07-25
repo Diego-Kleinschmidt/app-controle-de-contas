@@ -34,6 +34,9 @@ export default function FormNovoLancamento({
   );
   const [forma, setForma] = useState("unica");
   const [parcelaTotal, setParcelaTotal] = useState("");
+  // Conta "a receber": paguei por outra pessoa (não entra nas minhas contas)
+  const [ehTerceiro, setEhTerceiro] = useState(Boolean(lancamento?.terceiro));
+  const [nomeTerceiro, setNomeTerceiro] = useState(lancamento?.terceiro ?? "");
   const [erro, setErro] = useState(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -43,20 +46,25 @@ export default function FormNovoLancamento({
 
     if (!descricao.trim()) return setErro("Escreva uma descrição.");
     if (!(paraNumero(valor) > 0)) return setErro("Informe um valor maior que zero.");
-    if (!edicao && forma === "parcelada" && !(Number(parcelaTotal) > 1)) {
+    if (ehTerceiro && !nomeTerceiro.trim()) {
+      return setErro("Diga de quem é essa conta a receber (ex.: Pai).");
+    }
+    if (!edicao && !ehTerceiro && forma === "parcelada" && !(Number(parcelaTotal) > 1)) {
       return setErro("Para compra parcelada, informe o número de parcelas (2 ou mais).");
     }
 
     setSalvando(true);
     try {
+      // Conta a receber: é sempre uma despesa única que EU paguei por alguém.
       const dados = {
-        tipo,
+        tipo: ehTerceiro ? "despesa" : tipo,
         descricao: descricao.trim(),
         valor: paraNumero(valor),
         data,
-        responsavel_id: responsavelId || null,
-        forma,
+        responsavel_id: ehTerceiro ? usuarioId || null : responsavelId || null,
+        forma: ehTerceiro ? "unica" : forma,
         parcela_total: parcelaTotal,
+        terceiro: ehTerceiro ? nomeTerceiro.trim() : null,
         mesReferencia, // mês que está sendo visto = mês da conta
       };
 
@@ -69,6 +77,8 @@ export default function FormNovoLancamento({
         setValor("");
         setForma("unica");
         setParcelaTotal("");
+        setEhTerceiro(false);
+        setNomeTerceiro("");
       }
       onSalvo?.(); // avisa a tela principal para recarregar a lista
     } catch (e) {
@@ -87,31 +97,33 @@ export default function FormNovoLancamento({
         {edicao ? "Editar lançamento" : "Novo lançamento"}
       </h2>
 
-      {/* Tipo: receita ou despesa */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          type="button"
-          onClick={() => setTipo("receita")}
-          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-            tipo === "receita"
-              ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
-              : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-          }`}
-        >
-          Entrada (receita)
-        </button>
-        <button
-          type="button"
-          onClick={() => setTipo("despesa")}
-          className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-            tipo === "despesa"
-              ? "border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
-              : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
-          }`}
-        >
-          Saída (despesa)
-        </button>
-      </div>
+      {/* Tipo: receita ou despesa (escondido quando é conta a receber) */}
+      {!ehTerceiro && (
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setTipo("receita")}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              tipo === "receita"
+                ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"
+                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+            }`}
+          >
+            Entrada (receita)
+          </button>
+          <button
+            type="button"
+            onClick={() => setTipo("despesa")}
+            className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+              tipo === "despesa"
+                ? "border-rose-500 bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-300"
+                : "border-zinc-300 text-zinc-600 dark:border-zinc-700 dark:text-zinc-400"
+            }`}
+          >
+            Saída (despesa)
+          </button>
+        </div>
+      )}
 
       {/* Descrição */}
       <label className="flex flex-col gap-1">
@@ -150,9 +162,37 @@ export default function FormNovoLancamento({
         </label>
       </div>
 
-      {/* Responsável: vale para despesa e receita.
+      {/* Conta "a receber": paguei por outra pessoa */}
+      <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <input
+          type="checkbox"
+          checked={ehTerceiro}
+          onChange={(e) => setEhTerceiro(e.target.checked)}
+          className="h-4 w-4"
+        />
+        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+          Paguei por outra pessoa — não entra nas minhas contas
+        </span>
+      </label>
+
+      {ehTerceiro && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Quem vai me pagar?
+          </span>
+          <input
+            type="text"
+            value={nomeTerceiro}
+            onChange={(e) => setNomeTerceiro(e.target.value)}
+            placeholder="Nome da pessoa"
+            className={campo}
+          />
+        </label>
+      )}
+
+      {/* Responsável: só para lançamentos normais (não "a receber").
           Não-admin (travarResponsavel) só lança para si — sem escolher. */}
-      {!travarResponsavel && (
+      {!ehTerceiro && !travarResponsavel && (
         <label className="flex flex-col gap-1">
           <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">De quem é?</span>
           <select
@@ -169,8 +209,8 @@ export default function FormNovoLancamento({
         </label>
       )}
 
-      {/* Forma e parcelas: só ao criar (na edição não mexemos no parcelamento) */}
-      {!edicao && (
+      {/* Forma e parcelas: só ao criar lançamento normal (não "a receber") */}
+      {!edicao && !ehTerceiro && (
         <>
           <label className="flex flex-col gap-1">
             <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
