@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { criar, atualizar } from "@/lib/lancamentos";
+import { criar, atualizar, atualizarSerie } from "@/lib/lancamentos";
 import { hojeISO, paraNumero, formatarComoMoeda } from "@/lib/formato";
 
 // Estilo reaproveitado nos campos
@@ -37,22 +37,45 @@ export default function FormNovoLancamento({
   // Conta "a receber": paguei por outra pessoa (não entra nas minhas contas)
   const [ehTerceiro, setEhTerceiro] = useState(Boolean(lancamento?.terceiro));
   const [nomeTerceiro, setNomeTerceiro] = useState(lancamento?.terceiro ?? "");
+  const [fixarAoCriar, setFixarAoCriar] = useState(false); // fixar no topo ao criar
+  const [perguntarSerie, setPerguntarSerie] = useState(false); // editar: todos ou só este?
   const [erro, setErro] = useState(null);
   const [salvando, setSalvando] = useState(false);
 
-  async function salvar(evento) {
-    evento.preventDefault();
-    setErro(null);
+  // É uma edição de algo que se repete (recorrente/parcelada)?
+  const ehSerieEdit =
+    edicao && (lancamento?.forma === "recorrente" || lancamento?.forma === "parcelada");
+  const rotuloSerie = lancamento?.forma === "parcelada" ? "as parcelas" : "os meses";
 
-    if (!descricao.trim()) return setErro("Escreva uma descrição.");
-    if (!(paraNumero(valor) > 0)) return setErro("Informe um valor maior que zero.");
+  function validar() {
+    if (!descricao.trim()) return "Escreva uma descrição.";
+    if (!(paraNumero(valor) > 0)) return "Informe um valor maior que zero.";
     if (ehTerceiro && !nomeTerceiro.trim()) {
-      return setErro("Diga de quem é essa conta a receber (ex.: Pai).");
+      return "Diga de quem é essa conta a receber (ex.: Pai).";
     }
     if (!edicao && !ehTerceiro && forma === "parcelada" && !(Number(parcelaTotal) > 1)) {
-      return setErro("Para compra parcelada, informe o número de parcelas (2 ou mais).");
+      return "Para compra parcelada, informe o número de parcelas (2 ou mais).";
     }
+    return null;
+  }
 
+  function salvar(evento) {
+    evento.preventDefault();
+    const problema = validar();
+    if (problema) return setErro(problema);
+    setErro(null);
+
+    // Ao editar uma série, perguntamos se aplica em todos ou só neste mês.
+    if (ehSerieEdit) {
+      setPerguntarSerie(true);
+      return;
+    }
+    executarSalvar("um");
+  }
+
+  // modo: "um" (só este) ou "serie" (todos da recorrência/parcelamento)
+  async function executarSalvar(modo) {
+    setErro(null);
     setSalvando(true);
     try {
       // Conta a receber: é sempre uma despesa única que EU paguei por alguém.
@@ -65,11 +88,16 @@ export default function FormNovoLancamento({
         forma: ehTerceiro ? "unica" : forma,
         parcela_total: parcelaTotal,
         terceiro: ehTerceiro ? nomeTerceiro.trim() : null,
+        fixado: fixarAoCriar,
         mesReferencia, // mês que está sendo visto = mês da conta
       };
 
       if (edicao) {
-        await atualizar(lancamento.id, dados);
+        if (modo === "serie") {
+          await atualizarSerie(lancamento, dados);
+        } else {
+          await atualizar(lancamento.id, dados);
+        }
       } else {
         await criar(dados);
         // Limpa o formulário para um novo lançamento
@@ -79,12 +107,14 @@ export default function FormNovoLancamento({
         setParcelaTotal("");
         setEhTerceiro(false);
         setNomeTerceiro("");
+        setFixarAoCriar(false);
       }
       onSalvo?.(); // avisa a tela principal para recarregar a lista
     } catch (e) {
       setErro(e.message ?? "Não foi possível salvar.");
     } finally {
       setSalvando(false);
+      setPerguntarSerie(false);
     }
   }
 
@@ -162,34 +192,6 @@ export default function FormNovoLancamento({
         </label>
       </div>
 
-      {/* Conta "a receber": paguei por outra pessoa */}
-      <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-        <input
-          type="checkbox"
-          checked={ehTerceiro}
-          onChange={(e) => setEhTerceiro(e.target.checked)}
-          className="h-4 w-4"
-        />
-        <span className="text-sm text-zinc-700 dark:text-zinc-300">
-          Paguei por outra pessoa — não entra nas minhas contas
-        </span>
-      </label>
-
-      {ehTerceiro && (
-        <label className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Quem vai me pagar?
-          </span>
-          <input
-            type="text"
-            value={nomeTerceiro}
-            onChange={(e) => setNomeTerceiro(e.target.value)}
-            placeholder="Nome da pessoa"
-            className={campo}
-          />
-        </label>
-      )}
-
       {/* Responsável: só para lançamentos normais (não "a receber").
           Não-admin (travarResponsavel) só lança para si — sem escolher. */}
       {!ehTerceiro && !travarResponsavel && (
@@ -248,26 +250,106 @@ export default function FormNovoLancamento({
         </>
       )}
 
+      {/* Opções (checkboxes juntos) */}
+      {/* Conta "a receber": paguei por outra pessoa */}
+      <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+        <input
+          type="checkbox"
+          checked={ehTerceiro}
+          onChange={(e) => setEhTerceiro(e.target.checked)}
+          className="h-4 w-4"
+        />
+        <span className="text-sm text-zinc-700 dark:text-zinc-300">
+          Paguei por outra pessoa — não entra nas minhas contas
+        </span>
+      </label>
+
+      {ehTerceiro && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Quem vai me pagar?
+          </span>
+          <input
+            type="text"
+            value={nomeTerceiro}
+            onChange={(e) => setNomeTerceiro(e.target.value)}
+            placeholder="Nome da pessoa"
+            className={campo}
+          />
+        </label>
+      )}
+
+      {/* Fixar no topo ao criar (se for série, fica fixado em todos os meses) */}
+      {!edicao && !ehTerceiro && (
+        <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            checked={fixarAoCriar}
+            onChange={(e) => setFixarAoCriar(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+            📌 Deixar fixado no topo
+            {forma !== "unica" && (
+              <span className="text-zinc-400 dark:text-zinc-500"> (em todos os meses)</span>
+            )}
+          </span>
+        </label>
+      )}
+
       {erro && <p className="text-sm text-rose-600 dark:text-rose-400">{erro}</p>}
 
-      <div className="flex gap-2">
-        <button
-          type="submit"
-          disabled={salvando}
-          className="flex-1 rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
-        >
-          {salvando ? "Salvando…" : edicao ? "Salvar alterações" : "Adicionar lançamento"}
-        </button>
-        {onCancelar && (
+      {perguntarSerie ? (
+        // Edição de série: aplicar em todos ou só neste mês?
+        <div className="flex flex-col gap-2">
+          <p className="text-sm text-zinc-600 dark:text-zinc-400">
+            Este lançamento se repete. Aplicar a alteração em:
+          </p>
           <button
             type="button"
-            onClick={onCancelar}
-            className="rounded-lg border border-zinc-300 px-4 py-2 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            onClick={() => executarSalvar("um")}
+            disabled={salvando}
+            className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
-            Cancelar
+            {salvando ? "Salvando…" : "Só este mês"}
           </button>
-        )}
-      </div>
+          <button
+            type="button"
+            onClick={() => executarSalvar("serie")}
+            disabled={salvando}
+            className="rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {salvando ? "Salvando…" : `Todos ${rotuloSerie}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setPerguntarSerie(false)}
+            disabled={salvando}
+            className="rounded-lg px-4 py-2 font-medium text-zinc-500 transition-colors hover:bg-zinc-100 disabled:opacity-60 dark:text-zinc-400 dark:hover:bg-zinc-800"
+          >
+            Voltar
+          </button>
+        </div>
+      ) : (
+        <div className="flex gap-2">
+          <button
+            type="submit"
+            disabled={salvando}
+            className="flex-1 rounded-lg bg-zinc-900 px-4 py-2 font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {salvando ? "Salvando…" : edicao ? "Salvar alterações" : "Adicionar lançamento"}
+          </button>
+          {onCancelar && (
+            <button
+              type="button"
+              onClick={onCancelar}
+              className="rounded-lg border border-zinc-300 px-4 py-2 font-medium text-zinc-700 transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      )}
     </form>
   );
 }

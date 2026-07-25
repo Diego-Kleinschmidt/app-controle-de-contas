@@ -534,7 +534,7 @@ export default function PainelContas({ usuario, onSair }) {
           </p>
         ) : listaExibida.length === 0 ? (
           <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
-            Nada encontrado para “{busca}”.
+            Nenhum lançamento encontrado. 🔍
           </p>
         ) : (
           listaExibida.map((l) => (
