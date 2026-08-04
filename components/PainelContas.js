@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { listarPorMes, apagar, apagarSerie, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
-import { formatarReais, mesCorrente, somarMeses, formatarDataBR } from "@/lib/formato";
+import { formatarReais, mesCorrente, somarMeses, formatarDataBR, semAcento } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 import SeletorMes from "@/components/SeletorMes";
@@ -35,6 +35,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState(""); // filtro por nome/valor (conforme digita)
+  const [ordenarPor, setOrdenarPor] = useState("recentes"); // "recentes" | "compra"
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
@@ -140,19 +141,23 @@ export default function PainelContas({ usuario, onSair }) {
     ? "Contas do mês (até agora)"
     : `Contas de ${nomePorId[filtro] ?? "usuário"}`;
 
-  // Fixados sempre no topo (mantendo a ordem por data dentro de cada grupo)
+  // Ordenação: fixados sempre no topo; depois pela opção escolhida.
+  // "recentes" = últimos lançados primeiro (created_at); "compra" = data da compra.
   const listaOrdenada = [...contasNormais].sort((a, b) => {
     if (Boolean(a.fixado) !== Boolean(b.fixado)) return a.fixado ? -1 : 1;
-    return 0;
+    if (ordenarPor === "compra") {
+      return String(b.data || "").localeCompare(String(a.data || ""));
+    }
+    return String(b.created_at || "").localeCompare(String(a.created_at || ""));
   });
 
-  // Filtro de busca (por nome ou valor), aplicado conforme digita
-  const termoBusca = busca.trim().toLowerCase();
+  // Filtro de busca (por nome ou valor), ignorando acentos e maiúsculas
+  const termoBusca = semAcento(busca.trim());
   const listaExibida = listaOrdenada.filter((l) => {
     if (!termoBusca) return true;
-    const nome = (l.descricao || "").toLowerCase();
+    const nome = semAcento(l.descricao || "");
     const abs = Math.abs(Number(l.valor));
-    const valorTexto = `${abs.toFixed(2).replace(".", ",")} ${formatarReais(abs)}`.toLowerCase();
+    const valorTexto = semAcento(`${abs.toFixed(2).replace(".", ",")} ${formatarReais(abs)}`);
     return nome.includes(termoBusca) || valorTexto.includes(termoBusca);
   });
 
@@ -477,6 +482,7 @@ export default function PainelContas({ usuario, onSair }) {
             existentes={lista}
             perfis={perfis}
             usuarioId={usuario.id}
+            responsavelPadrao={filtro || usuario.id}
             travarResponsavel={!ehAdmin}
             onSalvo={() => {
               setMostrarImport(false);
@@ -514,9 +520,20 @@ export default function PainelContas({ usuario, onSair }) {
           </div>
         )}
 
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-          Lançamentos
-        </h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Lançamentos
+          </h2>
+          <select
+            value={ordenarPor}
+            onChange={(e) => setOrdenarPor(e.target.value)}
+            className="rounded-lg border border-zinc-300 bg-white px-2 py-1 text-xs text-zinc-600 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300"
+            aria-label="Ordenar lançamentos"
+          >
+            <option value="recentes">Mais recentes</option>
+            <option value="compra">Data da compra</option>
+          </select>
+        </div>
 
         {carregando ? (
           <p className="py-6 text-center text-sm text-zinc-500 dark:text-zinc-400">

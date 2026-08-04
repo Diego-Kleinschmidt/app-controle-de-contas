@@ -100,6 +100,7 @@ export default function ImportarExtrato({
   existentes,
   perfis = [],
   usuarioId,
+  responsavelPadrao, // pessoa em foco na tela (padrão dos itens lidos)
   travarResponsavel = false, // não-admin: tudo entra no nome dele mesmo
   onSalvo,
   onCancelar,
@@ -135,7 +136,7 @@ export default function ImportarExtrato({
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
 
-      const respPadrao = usuarioId ?? perfis[0]?.id ?? "";
+      const respPadrao = responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? "";
       const lidos = (dados.lancamentos || []).map((l) => {
         const ehReceita = l.tipo === "receita";
         return {
