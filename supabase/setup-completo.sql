@@ -59,6 +59,7 @@ create table if not exists public.lancamentos (
   terceiro       text,                            -- conta "a receber": paguei por outra pessoa
   recebido       boolean not null default false,  -- a pessoa já me pagou de volta?
   serie_id       uuid,                            -- agrupa as linhas de uma série (recorrente/parcelada)
+  nao_transferir boolean not null default false,  -- acerto: fica na conta da pessoa (não transfere)
   fixado         boolean not null default false,
   forma          text not null default 'unica'
                    check (forma in ('unica','recorrente','parcelada')),
@@ -211,10 +212,14 @@ drop policy if exists "atualizar" on public.lancamentos;
 drop policy if exists "apagar" on public.lancamentos;
 
 -- Ler: dentro do grupo; admin vê tudo, os demais só as próprias contas
+-- (e nunca os itens "não transferir", que são visão só do admin).
 create policy "ler" on public.lancamentos for select to authenticated
 using (
   grupo_id = public.meu_grupo()
-  and (public.sou_admin() or responsavel_id = auth.uid())
+  and (
+    public.sou_admin()
+    or (responsavel_id = auth.uid() and not nao_transferir)
+  )
 );
 
 -- Inserir: admin (qualquer responsável) OU quem pode lançar (só para si)

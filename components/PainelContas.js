@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { listarPorMes, apagar, apagarSerie, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
-import { formatarReais, mesCorrente, somarMeses, formatarDataBR, semAcento } from "@/lib/formato";
+import { formatarReais, mesCorrente, somarMeses, formatarDataBR, semAcento, rotuloMes } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
 import ConfigPermissoes from "@/components/ConfigPermissoes";
 import ConfirmarModal from "@/components/ConfirmarModal";
+import AcertoContas from "@/components/AcertoContas";
 import Aviso from "@/components/Aviso";
 import Modal from "@/components/Modal";
 
@@ -32,6 +33,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [editando, setEditando] = useState(null);
   const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
   const [mostrarConfig, setMostrarConfig] = useState(false);
+  const [mostrarAcerto, setMostrarAcerto] = useState(false);
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState(""); // filtro por nome/valor (conforme digita)
@@ -123,9 +125,11 @@ export default function PainelContas({ usuario, onSair }) {
   const contasNormais = listaFiltrada.filter((l) => !l.terceiro);
   const contasAReceber = listaFiltrada.filter((l) => l.terceiro);
 
-  // Somatórios do que está visível (só contas normais; "a receber" não conta)
+  // Somatórios do que está visível (só contas normais; "a receber" não conta).
+  // Itens "não transferir" (empréstimo/cotas do admin na conta da pessoa) também
+  // NÃO entram no total dela — são visão só do admin.
   const despesasVisiveis = contasNormais
-    .filter((l) => l.tipo === "despesa")
+    .filter((l) => l.tipo === "despesa" && !l.nao_transferir)
     .reduce((s, l) => s + Number(l.valor), 0);
   const receitasVisiveis = contasNormais
     .filter((l) => l.tipo === "receita")
@@ -176,6 +180,16 @@ export default function PainelContas({ usuario, onSair }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {ehAdmin && (
+            <button
+              onClick={() => setMostrarAcerto(true)}
+              className="rounded-lg p-1.5 text-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Acerto de contas"
+              title="Acerto de contas (quanto transferir)"
+            >
+              🧮
+            </button>
+          )}
           {ehAdmin && (
             <button
               onClick={() => setMostrarConfig(true)}
@@ -426,6 +440,19 @@ export default function PainelContas({ usuario, onSair }) {
           );
         })()}
 
+      {/* Modal: acerto de contas (só admin) */}
+      {ehAdmin && mostrarAcerto && (
+        <Modal onClose={() => setMostrarAcerto(false)}>
+          <AcertoContas
+            lista={lista}
+            perfis={perfis}
+            meuId={usuario.id}
+            mesLabel={rotuloMes(mes)}
+            onFechar={() => setMostrarAcerto(false)}
+          />
+        </Modal>
+      )}
+
       {/* Modal: configuração de permissões (só admin) */}
       {ehAdmin && mostrarConfig && (
         <Modal onClose={() => setMostrarConfig(false)}>
@@ -447,6 +474,7 @@ export default function PainelContas({ usuario, onSair }) {
             usuarioId={usuario.id}
             responsavelPadrao={filtro || usuario.id}
             travarResponsavel={!ehAdmin}
+            mostrarNaoTransferir={ehAdmin}
             onSalvo={() => {
               setMostrarForm(false);
               carregar();
@@ -465,6 +493,7 @@ export default function PainelContas({ usuario, onSair }) {
             perfis={perfis}
             usuarioId={usuario.id}
             travarResponsavel={!ehAdmin}
+            mostrarNaoTransferir={ehAdmin}
             onSalvo={() => {
               setEditando(null);
               carregar();
@@ -574,6 +603,11 @@ export default function PainelContas({ usuario, onSair }) {
                   {l.forma === "recorrente" && <span>• recorrente</span>}
                   {l.tipo === "despesa" && Number(l.valor) < 0 && (
                     <span>• reembolso</span>
+                  )}
+                  {l.nao_transferir && (
+                    <span className="font-medium text-amber-600 dark:text-amber-400">
+                      • fica na conta (não soma ao saldo)
+                    </span>
                   )}
                 </p>
               </div>

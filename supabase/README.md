@@ -28,6 +28,7 @@ desenvolvimento. Servem só como registro — o `setup-completo.sql` já reúne 
 6. `criado-por.sql` — autoria (`criado_por`): editar só o que a pessoa lançou
 7. `a-receber.sql` — colunas `terceiro`/`recebido`: contas pagas por outros
 8. `serie-id.sql` — coluna `serie_id`: identifica cada série (recorrente/parcelada)
+9. `nao-transferir.sql` — coluna `nao_transferir`: acerto de contas (fica na conta)
 
 ## Utilitário
 

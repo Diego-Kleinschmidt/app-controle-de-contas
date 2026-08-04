@@ -21,6 +21,7 @@ export default function FormNovoLancamento({
   usuarioId,
   responsavelPadrao, // pessoa em foco na tela (padrão do "de quem é" ao criar)
   travarResponsavel = false, // não-admin: fixa o responsável nele mesmo
+  mostrarNaoTransferir = false, // admin: mostra "não transferir (fica na conta)"
   onSalvo,
   onCancelar,
 }) {
@@ -39,6 +40,7 @@ export default function FormNovoLancamento({
   const [ehTerceiro, setEhTerceiro] = useState(Boolean(lancamento?.terceiro));
   const [nomeTerceiro, setNomeTerceiro] = useState(lancamento?.terceiro ?? "");
   const [fixarAoCriar, setFixarAoCriar] = useState(false); // fixar no topo ao criar
+  const [naoTransferir, setNaoTransferir] = useState(Boolean(lancamento?.nao_transferir));
   const [perguntarSerie, setPerguntarSerie] = useState(false); // editar: todos ou só este?
   const [erro, setErro] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -89,6 +91,7 @@ export default function FormNovoLancamento({
         parcela_total: parcelaTotal,
         terceiro: ehTerceiro ? nomeTerceiro.trim() : null,
         fixado: fixarAoCriar,
+        nao_transferir: !ehTerceiro && naoTransferir,
         mesReferencia, // mês que está sendo visto = mês da conta
       };
 
@@ -293,6 +296,22 @@ export default function FormNovoLancamento({
             {forma !== "unica" && (
               <span className="text-zinc-400 dark:text-zinc-500"> (em todos os meses)</span>
             )}
+          </span>
+        </label>
+      )}
+
+      {/* Não transferir: fica na conta da pessoa (só admin) */}
+      {mostrarNaoTransferir && !ehTerceiro && (
+        <label className="flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            checked={naoTransferir}
+            onChange={(e) => setNaoTransferir(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <span className="text-sm text-zinc-700 dark:text-zinc-300">
+            Não transferir — fica na conta da pessoa
+            <span className="text-zinc-400 dark:text-zinc-500"> (ex.: empréstimo, cotas)</span>
           </span>
         </label>
       )}
