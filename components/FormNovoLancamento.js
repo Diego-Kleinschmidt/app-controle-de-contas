@@ -50,9 +50,10 @@ export default function FormNovoLancamento({
   const ehSerieEdit =
     edicao && (lancamento?.forma === "recorrente" || lancamento?.forma === "parcelada");
 
-  // Avisa se já existe um lançamento parecido no mês — de QUALQUER pessoa.
+  // Avisa se já existe um lançamento parecido no mês para a MESMA pessoa.
   // "Parecido" = mesmo valor + descrição que bate (uma contém a outra). É só um
   // aviso: não impede salvar (pode ser realmente outra conta igual).
+  // (Contas iguais de pessoas diferentes — casa, luz — não são repetição.)
   const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
   const valNum = paraNumero(valor);
   const descNorm = semAcento(descricao.trim());
@@ -60,6 +61,7 @@ export default function FormNovoLancamento({
     !edicao && !ehTerceiro && descNorm && valNum > 0
       ? (existentes || []).filter((e) => {
           if (e.terceiro) return false; // "a receber" é outra natureza
+          if (e.responsavel_id !== responsavelId) return false; // só a mesma pessoa
           if (Math.abs(Number(e.valor)).toFixed(2) !== valNum.toFixed(2)) return false;
           const ed = semAcento((e.descricao || "").trim());
           return ed === descNorm || ed.includes(descNorm) || descNorm.includes(ed);

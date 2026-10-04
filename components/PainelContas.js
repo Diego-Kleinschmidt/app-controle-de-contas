@@ -155,10 +155,13 @@ export default function PainelContas({ usuario, onSair }) {
     return String(b.created_at || "").localeCompare(String(a.created_at || ""));
   });
 
-  // Possíveis repetidos no mês: mesma descrição (sem acento) + mesmo valor,
-  // de QUALQUER pessoa. Se a mesma "chave" aparece mais de uma vez, marcamos.
+  // Possíveis repetidos no mês: MESMA pessoa com mesma descrição (sem acento) +
+  // mesmo valor. (Contas iguais entre pessoas diferentes — casa, luz, água que a
+  // família divide — não são repetição, então entram na chave com o responsável.)
   const chaveRepetido = (l) =>
-    `${semAcento((l.descricao || "").trim())}|${Math.abs(Number(l.valor)).toFixed(2)}`;
+    `${l.responsavel_id || ""}|${semAcento((l.descricao || "").trim())}|${Math.abs(
+      Number(l.valor)
+    ).toFixed(2)}`;
   const contagemRepetidos = {};
   for (const l of lista) {
     if (l.terceiro) continue; // "a receber" não entra nessa conta
