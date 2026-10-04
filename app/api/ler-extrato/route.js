@@ -30,7 +30,12 @@ Regras:
   ENTRA (crédito, PIX recebido, salário, transferência recebida, depósito).
 - "reembolso": true SOMENTE para estorno/devolução/crédito que volta numa FATURA DE CARTÃO
   (nesse caso "tipo":"despesa" e "reembolso":true). Nos demais casos, false.
-- "data" no formato AAAA-MM-DD. Se o ano não aparecer, use o ano atual.
+- "data": devolva no formato AAAA-MM-DD. As datas do documento estão em formato
+  BRASILEIRO, com o DIA PRIMEIRO (DD/MM ou DD/MM/AA). Ex.: "04/10" é 4 de outubro
+  (…-10-04), NUNCA 10 de abril; "05/09" é 5 de setembro. NÃO troque dia por mês.
+  Para o ANO: se não aparecer na linha, use o ANO da fatura/competência mostrada no
+  documento (ex.: o mês/ano da fatura no topo, ou o período "DE 01/10 A 31/10"). Só
+  use o ano atual se o documento não indicar nenhum ano.
 - PARCELAMENTO: se a linha indicar parcela X de Y, preencha "parcela_atual" (X, sem zeros à
   esquerda) e "parcela_total" (Y). Vale tanto para CARTÃO (ex.: "PARC 03/10", "3/10",
   "Parcela 3 de 10") quanto para EMPRÉSTIMO/PRESTAÇÃO (ex.: "PREST.EMPREST 021/048" = parcela
