@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { criarVarios } from "@/lib/lancamentos";
+import { criarVarios, definirCartaoEmVarios } from "@/lib/lancamentos";
 import { prepararEnvio, nomesParecidos } from "@/lib/leituraExtrato";
 import {
   formatarReais,
@@ -40,11 +40,6 @@ export default function ConferenciaCartao({
   const controladorRef = useRef(null);
   useEffect(() => () => controladorRef.current?.abort(), []);
 
-  // Já lançados NESTE cartão no mês (de qualquer pessoa — seu e da sua mãe).
-  const lancadosDoCartao = lista.filter(
-    (l) => l.cartao_id === cartaoId && !l.terceiro
-  );
-
   async function aoEscolherArquivo(evento) {
     const arquivo = evento.target.files?.[0];
     if (!arquivo) return;
@@ -75,8 +70,11 @@ export default function ConferenciaCartao({
     }
   }
 
-  // Compara os itens lidos com os já lançados no cartão: casa por VALOR + nome
-  // parecido (cada lançado casa com um item lido só uma vez).
+  // Compara os itens lidos com TODOS os lançamentos do mês (de qualquer pessoa),
+  // casando por VALOR + nome parecido (cada lançado casa uma vez). Classifica:
+  //  - conferido: já está lançado NESTE cartão;
+  //  - aMarcar:  já está lançado, mas sem cartão (ou em outro) → marcar este;
+  //  - faltando: não achou lançado → oferecer para lançar.
   function montarConferencia(lancamentos) {
     const respPadrao = usuarioId || perfis[0]?.id || "";
     const lidos = (lancamentos || [])
@@ -94,37 +92,61 @@ export default function ConferenciaCartao({
       })
       .filter((it) => it.valor > 0 && it.descricao.trim());
 
-    const disp = lancadosDoCartao.map((e) => ({
-      ref: e,
-      valor: Math.abs(Number(e.valor)).toFixed(2),
-      desc: e.descricao || "",
-      usado: false,
-    }));
+    const candidatos = lista
+      .filter((l) => !l.terceiro)
+      .map((e) => ({
+        ref: e,
+        valor: Math.abs(Number(e.valor)).toFixed(2),
+        desc: e.descricao || "",
+        usado: false,
+      }));
 
     const conferidos = [];
+    const aMarcar = [];
     const faltando = [];
     for (const it of lidos) {
       const val = Math.abs(Number(it.valor)).toFixed(2);
-      const achado = disp.find(
+      const achado = candidatos.find(
         (e) => !e.usado && e.valor === val && nomesParecidos(e.desc, it.descricao)
       );
       if (achado) {
         achado.usado = true;
-        conferidos.push(it);
+        if (achado.ref.cartao_id === cartaoId) {
+          conferidos.push(it); // já está certo neste cartão
+        } else {
+          // já lançado, mas sem cartão (ou em outro): oferecer marcar este cartão.
+          // Sem cartão já vem marcado; em outro cartão vem desmarcado (é mudança).
+          aMarcar.push({
+            ref: achado.ref,
+            descricao: achado.ref.descricao,
+            valor: Math.abs(Number(achado.ref.valor)),
+            cartaoAtual: achado.ref.cartao_id || null,
+            incluir: !achado.ref.cartao_id,
+          });
+        }
       } else {
         faltando.push({ ...it, incluir: true, responsavel_id: respPadrao });
       }
     }
-    // Lançados no cartão que NÃO apareceram no print (pode ser erro/duplicado)
-    const sobrando = disp.filter((e) => !e.usado).map((e) => e.ref);
+    // Lançados JÁ neste cartão que NÃO apareceram no print (pode ser erro/duplicado)
+    const sobrando = candidatos
+      .filter((e) => !e.usado && e.ref.cartao_id === cartaoId)
+      .map((e) => e.ref);
 
-    setResultado({ conferidos, faltando, sobrando });
+    setResultado({ conferidos, aMarcar, faltando, sobrando });
   }
 
   function atualizarFaltando(i, chave, valor) {
     setResultado((r) => ({
       ...r,
       faltando: r.faltando.map((it, idx) => (idx === i ? { ...it, [chave]: valor } : it)),
+    }));
+  }
+
+  function alternarMarcar(i, valor) {
+    setResultado((r) => ({
+      ...r,
+      aMarcar: r.aMarcar.map((it, idx) => (idx === i ? { ...it, incluir: valor } : it)),
     }));
   }
 
@@ -145,15 +167,21 @@ export default function ConferenciaCartao({
         };
       });
 
-    if (escolhidos.length === 0) {
-      // Nada marcado para lançar — apenas fecha (conferência feita).
+    const idsMarcar = resultado.aMarcar
+      .filter((x) => x.incluir)
+      .map((x) => x.ref.id);
+
+    if (escolhidos.length === 0 && idsMarcar.length === 0) {
+      // Nada a lançar nem a marcar — apenas fecha (conferência feita).
       onSalvo?.();
       return;
     }
     setSalvando(true);
     setErro(null);
     try {
-      await criarVarios(escolhidos, mesReferencia);
+      // Primeiro marca o cartão nos que já estavam lançados, depois lança os que faltam.
+      if (idsMarcar.length) await definirCartaoEmVarios(idsMarcar, cartaoId);
+      if (escolhidos.length) await criarVarios(escolhidos, mesReferencia);
       onSalvo?.();
     } catch (e) {
       setErro(e.message);
@@ -162,9 +190,13 @@ export default function ConferenciaCartao({
     }
   }
 
-  const nomeCartao = cartoes.find((c) => c.id === cartaoId)?.nome || "";
+  const nomePorIdCartao = Object.fromEntries(cartoes.map((c) => [c.id, c.nome]));
+  const nomeCartao = nomePorIdCartao[cartaoId] || "";
   const marcadosFaltando = resultado
     ? resultado.faltando.filter((it) => it.incluir).length
+    : 0;
+  const marcadosMarcar = resultado
+    ? resultado.aMarcar.filter((it) => it.incluir).length
     : 0;
 
   return (
@@ -186,8 +218,9 @@ export default function ConferenciaCartao({
         <>
           <p className="text-sm text-zinc-600 dark:text-zinc-400">
             Escolha o cartão e mande o print do extrato/fatura de{" "}
-            <strong>{mesLabel}</strong>. Vou comparar com o que já está lançado nesse
-            cartão (seu e da sua mãe) e mostrar o que falta.
+            <strong>{mesLabel}</strong>. Vou comparar com o que já está lançado (seu e
+            da sua mãe), <strong>marcar este cartão</strong> nos que ainda estão sem
+            cartão, e mostrar o que <strong>falta lançar</strong>.
           </p>
 
           <label className="flex flex-col gap-1">
@@ -262,15 +295,61 @@ export default function ConferenciaCartao({
               💳 {nomeCartao}
             </span>
             <span className="rounded bg-emerald-100 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-              ✅ {resultado.conferidos.length} já lançado(s)
+              ✅ {resultado.conferidos.length} já no cartão
             </span>
+            {resultado.aMarcar.length > 0 && (
+              <span className="rounded bg-sky-100 px-2 py-0.5 font-medium text-sky-700 dark:bg-sky-950 dark:text-sky-300">
+                🏷️ {resultado.aMarcar.length} p/ marcar
+              </span>
+            )}
             <span className="rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-300">
               ❌ {resultado.faltando.length} faltando
             </span>
           </div>
 
+          {/* Já lançados sem cartão (ou em outro): marcar neste cartão */}
+          {resultado.aMarcar.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                Já lançados — marcar no cartão {nomeCartao}:
+              </p>
+              {resultado.aMarcar.map((it, i) => (
+                <label
+                  key={it.ref.id}
+                  className={`flex items-center justify-between gap-2 rounded-xl border p-3 ${
+                    it.incluir
+                      ? "border-sky-300 dark:border-sky-800"
+                      : "border-zinc-200 opacity-60 dark:border-zinc-800"
+                  }`}
+                >
+                  <span className="flex min-w-0 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={it.incluir}
+                      onChange={(e) => alternarMarcar(i, e.target.checked)}
+                      className="h-4 w-4"
+                    />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm text-zinc-800 dark:text-zinc-100">
+                        {it.descricao}
+                      </span>
+                      <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                        {it.cartaoAtual
+                          ? `hoje: 💳 ${nomePorIdCartao[it.cartaoAtual] || "outro"}`
+                          : "hoje: sem cartão"}
+                      </span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    {formatarReais(it.valor)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+
           {/* Faltando lançar: você decide o que entra */}
-          {resultado.faltando.length > 0 ? (
+          {resultado.faltando.length > 0 && (
             <div className="flex flex-col gap-2">
               <p className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
                 Faltando lançar — marque o que quer adicionar:
@@ -337,9 +416,11 @@ export default function ConferenciaCartao({
                 </div>
               ))}
             </div>
-          ) : (
+          )}
+
+          {resultado.faltando.length === 0 && resultado.aMarcar.length === 0 && (
             <p className="rounded-xl border border-dashed border-emerald-300 bg-emerald-50/50 py-4 text-center text-sm font-medium text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/20 dark:text-emerald-300">
-              🎉 Tudo deste print já está lançado nesse cartão!
+              🎉 Tudo deste print já está conferido neste cartão!
             </p>
           )}
 
@@ -400,8 +481,10 @@ export default function ConferenciaCartao({
         >
           {salvando
             ? "Salvando…"
-            : marcadosFaltando > 0
-            ? `Lançar ${marcadosFaltando} selecionado(s)`
+            : marcadosFaltando > 0 || marcadosMarcar > 0
+            ? `Aplicar${marcadosMarcar ? ` · marcar ${marcadosMarcar}` : ""}${
+                marcadosFaltando ? ` · lançar ${marcadosFaltando}` : ""
+              }`
             : "Concluir conferência"}
         </button>
       )}
