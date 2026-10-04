@@ -102,6 +102,7 @@ export default function ImportarExtrato({
   usuarioId,
   responsavelPadrao, // pessoa em foco na tela (padrão dos itens lidos)
   travarResponsavel = false, // não-admin: tudo entra no nome dele mesmo
+  textoInicial, // texto já pronto (ex.: notificação do banco "compartilhada" pro app)
   onSalvo,
   onCancelar,
 }) {
@@ -112,21 +113,71 @@ export default function ImportarExtrato({
 
   // Permite CANCELAR o pedido à IA se a tela for fechada no meio da leitura.
   const controladorRef = useRef(null);
+  const iniciouRef = useRef(false); // evita ler o texto compartilhado duas vezes
   useEffect(() => {
     // Ao desmontar (fechar a janela), aborta qualquer leitura em andamento.
     return () => controladorRef.current?.abort();
   }, []);
 
-  async function aoEscolherArquivo(evento) {
-    const arquivo = evento.target.files?.[0];
-    if (!arquivo) return;
+  // Transforma a resposta da IA em itens revisáveis (com marcação de repetidos).
+  function processarLidos(lancamentos) {
+    const respPadrao = responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? "";
+    const lidos = (lancamentos || []).map((l) => {
+      const ehReceita = l.tipo === "receita";
+      return {
+        descricao: l.descricao || "",
+        valor: Math.abs(Number(l.valor)) || 0,
+        // Extrato costuma vir sem ano — corrigimos pelo mês que está sendo visto
+        data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
+        responsavel_id: respPadrao,
+        tipo: ehReceita ? "receita" : "despesa",
+        // reembolso só faz sentido para despesa (estorno de cartão)
+        reembolso: !ehReceita && Boolean(l.reembolso),
+        // A IA sugere desmarcar itens que podem contar em dobro (pagamento de
+        // fatura, saldo anterior, transferência sua...) e explica em "observacao".
+        desmarcar: Boolean(l.desmarcar),
+        observacao: String(l.observacao || ""),
+        parcela_atual: Number(l.parcela_atual) || null,
+        parcela_total: Number(l.parcela_total) || null,
+      };
+    });
+
+    // Marca os que já existem no mês (mesma data + valor + descrição).
+    // Usa contagem, para o caso de haver itens realmente iguais repetidos.
+    const contagem = {};
+    for (const e of existentes || []) {
+      const k = chaveDedup(e.descricao, e.valor, e.data);
+      contagem[k] = (contagem[k] || 0) + 1;
+    }
+    const comDedup = lidos.map((it) => {
+      const assinado = it.reembolso ? -it.valor : it.valor;
+      const k = chaveDedup(it.descricao, assinado, it.data);
+      let jaExiste = false;
+      if (contagem[k] > 0) {
+        jaExiste = true;
+        contagem[k] -= 1;
+      }
+      // Vem desmarcado se já existe, ou se a IA sugeriu desmarcar
+      return { ...it, jaExiste, incluir: !jaExiste && !it.desmarcar };
+    });
+
+    if (comDedup.length === 0) {
+      setErro("Não identifiquei lançamentos aqui. Tente um print mais nítido ou outro arquivo.");
+    } else {
+      setItens(comDedup);
+    }
+  }
+
+  // Envia algo à IA (imagem/pdf/texto) e monta a lista para revisão.
+  // "preparar" é uma função que devolve o corpo do envio (pode ser assíncrona,
+  // ex.: diminuir a imagem antes). Mantém o cancelamento ao fechar a tela.
+  async function rodarLeitura(preparar) {
     setErro(null);
     setCarregando(true);
-    // Novo controlador para esta leitura (permite cancelar ao fechar a tela)
     const controlador = new AbortController();
     controladorRef.current = controlador;
     try {
-      const envio = await prepararEnvio(arquivo);
+      const envio = await preparar();
       const resposta = await fetch("/api/ler-extrato", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -135,52 +186,7 @@ export default function ImportarExtrato({
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
-
-      const respPadrao = responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? "";
-      const lidos = (dados.lancamentos || []).map((l) => {
-        const ehReceita = l.tipo === "receita";
-        return {
-          descricao: l.descricao || "",
-          valor: Math.abs(Number(l.valor)) || 0,
-          // Extrato costuma vir sem ano — corrigimos pelo mês que está sendo visto
-          data: ajustarAnoPorReferencia((l.data || hojeISO()).slice(0, 10), mesReferencia),
-          responsavel_id: respPadrao,
-          tipo: ehReceita ? "receita" : "despesa",
-          // reembolso só faz sentido para despesa (estorno de cartão)
-          reembolso: !ehReceita && Boolean(l.reembolso),
-          // A IA sugere desmarcar itens que podem contar em dobro (pagamento de
-          // fatura, saldo anterior, transferência sua...) e explica em "observacao".
-          desmarcar: Boolean(l.desmarcar),
-          observacao: String(l.observacao || ""),
-          parcela_atual: Number(l.parcela_atual) || null,
-          parcela_total: Number(l.parcela_total) || null,
-        };
-      });
-
-      // Marca os que já existem no mês (mesma data + valor + descrição).
-      // Usa contagem, para o caso de haver itens realmente iguais repetidos.
-      const contagem = {};
-      for (const e of existentes || []) {
-        const k = chaveDedup(e.descricao, e.valor, e.data);
-        contagem[k] = (contagem[k] || 0) + 1;
-      }
-      const comDedup = lidos.map((it) => {
-        const assinado = it.reembolso ? -it.valor : it.valor;
-        const k = chaveDedup(it.descricao, assinado, it.data);
-        let jaExiste = false;
-        if (contagem[k] > 0) {
-          jaExiste = true;
-          contagem[k] -= 1;
-        }
-        // Vem desmarcado se já existe, ou se a IA sugeriu desmarcar
-        return { ...it, jaExiste, incluir: !jaExiste && !it.desmarcar };
-      });
-
-      if (comDedup.length === 0) {
-        setErro("Não identifiquei lançamentos nesse arquivo. Tente um print mais nítido ou outro arquivo.");
-      } else {
-        setItens(comDedup);
-      }
+      processarLidos(dados.lancamentos || []);
     } catch (e) {
       // Se foi cancelado (tela fechada), não é erro — apenas ignoramos.
       if (e.name !== "AbortError") setErro(e.message);
@@ -189,6 +195,21 @@ export default function ImportarExtrato({
       setCarregando(false);
     }
   }
+
+  async function aoEscolherArquivo(evento) {
+    const arquivo = evento.target.files?.[0];
+    if (!arquivo) return;
+    await rodarLeitura(() => prepararEnvio(arquivo));
+  }
+
+  // Veio texto compartilhado (notificação/SMS do banco)? Lê automaticamente.
+  useEffect(() => {
+    if (textoInicial && textoInicial.trim() && !iniciouRef.current) {
+      iniciouRef.current = true;
+      rodarLeitura(async () => ({ texto: textoInicial }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [textoInicial]);
 
   function atualizar(i, campo, valor) {
     setItens((atual) =>

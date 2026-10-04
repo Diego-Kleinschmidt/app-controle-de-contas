@@ -155,6 +155,17 @@ export default function PainelContas({ usuario, onSair }) {
     return String(b.created_at || "").localeCompare(String(a.created_at || ""));
   });
 
+  // Possíveis repetidos no mês: mesma descrição (sem acento) + mesmo valor,
+  // de QUALQUER pessoa. Se a mesma "chave" aparece mais de uma vez, marcamos.
+  const chaveRepetido = (l) =>
+    `${semAcento((l.descricao || "").trim())}|${Math.abs(Number(l.valor)).toFixed(2)}`;
+  const contagemRepetidos = {};
+  for (const l of lista) {
+    if (l.terceiro) continue; // "a receber" não entra nessa conta
+    const k = chaveRepetido(l);
+    contagemRepetidos[k] = (contagemRepetidos[k] || 0) + 1;
+  }
+
   // Filtro de busca (por nome ou valor), ignorando acentos e maiúsculas
   const termoBusca = semAcento(busca.trim());
   const listaExibida = listaOrdenada.filter((l) => {
@@ -472,6 +483,7 @@ export default function PainelContas({ usuario, onSair }) {
             mesReferencia={mes}
             perfis={perfis}
             usuarioId={usuario.id}
+            existentes={lista}
             responsavelPadrao={filtro || usuario.id}
             travarResponsavel={!ehAdmin}
             mostrarNaoTransferir={ehAdmin}
@@ -607,6 +619,11 @@ export default function PainelContas({ usuario, onSair }) {
                   {l.nao_transferir && (
                     <span className="font-medium text-amber-600 dark:text-amber-400">
                       • fica na conta (não soma ao saldo)
+                    </span>
+                  )}
+                  {contagemRepetidos[chaveRepetido(l)] > 1 && (
+                    <span className="font-medium text-amber-600 dark:text-amber-400">
+                      • ⚠️ possível repetido
                     </span>
                   )}
                 </p>

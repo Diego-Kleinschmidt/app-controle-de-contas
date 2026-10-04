@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { criar, atualizar, atualizarSerie } from "@/lib/lancamentos";
-import { hojeISO, paraNumero, formatarComoMoeda } from "@/lib/formato";
+import { hojeISO, paraNumero, formatarComoMoeda, formatarReais, semAcento } from "@/lib/formato";
 
 // Estilo reaproveitado nos campos
 const campo =
@@ -19,6 +19,7 @@ export default function FormNovoLancamento({
   mesReferencia,
   perfis = [],
   usuarioId,
+  existentes = [], // lançamentos do mês (para avisar se já tem um igual)
   responsavelPadrao, // pessoa em foco na tela (padrão do "de quem é" ao criar)
   travarResponsavel = false, // não-admin: fixa o responsável nele mesmo
   mostrarNaoTransferir = false, // admin: mostra "não transferir (fica na conta)"
@@ -48,6 +49,22 @@ export default function FormNovoLancamento({
   // É uma edição de algo que se repete (recorrente/parcelada)?
   const ehSerieEdit =
     edicao && (lancamento?.forma === "recorrente" || lancamento?.forma === "parcelada");
+
+  // Avisa se já existe um lançamento parecido no mês — de QUALQUER pessoa.
+  // "Parecido" = mesmo valor + descrição que bate (uma contém a outra). É só um
+  // aviso: não impede salvar (pode ser realmente outra conta igual).
+  const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
+  const valNum = paraNumero(valor);
+  const descNorm = semAcento(descricao.trim());
+  const duplicados =
+    !edicao && !ehTerceiro && descNorm && valNum > 0
+      ? (existentes || []).filter((e) => {
+          if (e.terceiro) return false; // "a receber" é outra natureza
+          if (Math.abs(Number(e.valor)).toFixed(2) !== valNum.toFixed(2)) return false;
+          const ed = semAcento((e.descricao || "").trim());
+          return ed === descNorm || ed.includes(descNorm) || descNorm.includes(ed);
+        })
+      : [];
 
   function validar() {
     if (!descricao.trim()) return "Escreva uma descrição.";
@@ -314,6 +331,28 @@ export default function FormNovoLancamento({
             <span className="text-zinc-400 dark:text-zinc-500"> (ex.: empréstimo, cotas)</span>
           </span>
         </label>
+      )}
+
+      {/* Aviso de possível repetido (não bloqueia — só alerta) */}
+      {duplicados.length > 0 && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+          <p className="font-medium text-amber-800 dark:text-amber-300">
+            ⚠️ Já existe um lançamento parecido neste mês
+          </p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-amber-700 dark:text-amber-400">
+            {duplicados.slice(0, 3).map((d) => (
+              <li key={d.id}>
+                {d.descricao} — {formatarReais(Math.abs(Number(d.valor)))}
+                {d.responsavel_id && nomePorId[d.responsavel_id]
+                  ? ` (${nomePorId[d.responsavel_id]})`
+                  : ""}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1 text-xs text-amber-600 dark:text-amber-500">
+            Se não for o mesmo, pode salvar normalmente.
+          </p>
+        </div>
       )}
 
       {erro && <p className="text-sm text-rose-600 dark:text-rose-400">{erro}</p>}

@@ -14,6 +14,13 @@ const geistMono = Geist_Mono({
 export const metadata = {
   title: "Controle de Contas",
   description: "Controle mensal das contas da família — receitas, despesas e saldo do mês.",
+  manifest: "/manifest.json",
+  appleWebApp: { capable: true, title: "Contas", statusBarStyle: "black-translucent" },
+  icons: { icon: "/icon-192.png", apple: "/icon-192.png" },
+};
+
+export const viewport = {
+  themeColor: "#0a0a0a",
 };
 
 export default function RootLayout({ children }) {
@@ -28,6 +35,13 @@ export default function RootLayout({ children }) {
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var t=localStorage.getItem('tema');var escuro=t?t==='escuro':window.matchMedia('(prefers-color-scheme: dark)').matches;document.documentElement.classList.toggle('dark',escuro);}catch(e){document.documentElement.classList.add('dark');}})();`,
+          }}
+        />
+        {/* Registra o service worker — necessário para "instalar" o app no celular
+            e, com isso, ele aparecer na opção "Compartilhar" do sistema. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){})});}`,
           }}
         />
       </head>
