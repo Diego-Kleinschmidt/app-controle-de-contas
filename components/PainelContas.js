@@ -9,6 +9,7 @@ import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
 import ConfigPermissoes from "@/components/ConfigPermissoes";
 import ConfigCartoes from "@/components/ConfigCartoes";
+import ConferenciaCartao from "@/components/ConferenciaCartao";
 import ConfirmarModal from "@/components/ConfirmarModal";
 import AcertoContas from "@/components/AcertoContas";
 import Aviso from "@/components/Aviso";
@@ -36,6 +37,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
   const [mostrarConfig, setMostrarConfig] = useState(false);
   const [mostrarConfigCartoes, setMostrarConfigCartoes] = useState(false);
+  const [mostrarConferencia, setMostrarConferencia] = useState(false);
   const [mostrarAcerto, setMostrarAcerto] = useState(false);
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
@@ -352,6 +354,16 @@ export default function PainelContas({ usuario, onSair }) {
           )}
           {ehAdmin && (
             <button
+              onClick={() => setMostrarConferencia(true)}
+              className="rounded-lg p-1.5 text-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Conferir cartão"
+              title="Conferir cartão (auditoria pelo print)"
+            >
+              🔎
+            </button>
+          )}
+          {ehAdmin && (
+            <button
               onClick={() => setMostrarConfigCartoes(true)}
               className="rounded-lg p-1.5 text-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               aria-label="Meus cartões"
@@ -642,6 +654,25 @@ export default function PainelContas({ usuario, onSair }) {
             cartoes={cartoes}
             onMudou={carregarCartoes}
             onFechar={() => setMostrarConfigCartoes(false)}
+          />
+        </Modal>
+      )}
+
+      {/* Modal: conferência/auditoria por cartão (só admin) */}
+      {ehAdmin && mostrarConferencia && (
+        <Modal onClose={() => setMostrarConferencia(false)}>
+          <ConferenciaCartao
+            mesReferencia={mes}
+            lista={lista}
+            perfis={perfis}
+            cartoes={cartoes}
+            usuarioId={usuario.id}
+            mesLabel={rotuloMes(mes)}
+            onSalvo={() => {
+              setMostrarConferencia(false);
+              carregar();
+            }}
+            onFechar={() => setMostrarConferencia(false)}
           />
         </Modal>
       )}
