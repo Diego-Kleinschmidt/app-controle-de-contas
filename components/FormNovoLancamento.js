@@ -18,6 +18,8 @@ export default function FormNovoLancamento({
   lancamento,
   mesReferencia,
   perfis = [],
+  cartoes = [], // cartões/meios cadastrados (para escolher em cada lançamento)
+  mostrarCartao = false, // só o admin mexe com cartão
   usuarioId,
   existentes = [], // lançamentos do mês (para avisar se já tem um igual)
   responsavelPadrao, // pessoa em foco na tela (padrão do "de quem é" ao criar)
@@ -35,6 +37,7 @@ export default function FormNovoLancamento({
   const [responsavelId, setResponsavelId] = useState(
     lancamento?.responsavel_id ?? responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? ""
   );
+  const [cartaoId, setCartaoId] = useState(lancamento?.cartao_id ?? "");
   const [forma, setForma] = useState("unica");
   const [parcelaTotal, setParcelaTotal] = useState("");
   // Conta "a receber": paguei por outra pessoa (não entra nas minhas contas)
@@ -111,6 +114,7 @@ export default function FormNovoLancamento({
         terceiro: ehTerceiro ? nomeTerceiro.trim() : null,
         fixado: fixarAoCriar,
         nao_transferir: !ehTerceiro && naoTransferir,
+        cartao_id: ehTerceiro ? null : cartaoId || null,
         mesReferencia, // mês que está sendo visto = mês da conta
       };
 
@@ -227,6 +231,27 @@ export default function FormNovoLancamento({
             {perfis.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.nome}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {/* Cartão / meio de pagamento (opcional) — só admin, lançamento normal */}
+      {mostrarCartao && !ehTerceiro && (
+        <label className="flex flex-col gap-1">
+          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+            Cartão / meio
+          </span>
+          <select
+            value={cartaoId}
+            onChange={(e) => setCartaoId(e.target.value)}
+            className={campo}
+          >
+            <option value="">Sem cartão / Outros</option>
+            {cartoes.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
               </option>
             ))}
           </select>

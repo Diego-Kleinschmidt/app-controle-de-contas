@@ -29,6 +29,7 @@ desenvolvimento. Servem só como registro — o `setup-completo.sql` já reúne 
 7. `a-receber.sql` — colunas `terceiro`/`recebido`: contas pagas por outros
 8. `serie-id.sql` — coluna `serie_id`: identifica cada série (recorrente/parcelada)
 9. `nao-transferir.sql` — coluna `nao_transferir`: acerto de contas (fica na conta)
+10. `cartoes.sql` — tabela `cartoes` + coluna `cartao_id`: agrupar contas por cartão
 
 ## Utilitário
 

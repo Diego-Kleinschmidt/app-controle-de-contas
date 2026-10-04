@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { listarPorMes, apagar, apagarSerie, fixar, listarPerfis, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
+import { listarPorMes, apagar, apagarSerie, fixar, listarPerfis, listarCartoes, obterGrupo, marcarRecebido } from "@/lib/lancamentos";
 import { formatarReais, mesCorrente, somarMeses, formatarDataBR, semAcento, rotuloMes } from "@/lib/formato";
 import FormNovoLancamento from "@/components/FormNovoLancamento";
 import ImportarExtrato from "@/components/ImportarExtrato";
 import SeletorMes from "@/components/SeletorMes";
 import BotaoTema from "@/components/BotaoTema";
 import ConfigPermissoes from "@/components/ConfigPermissoes";
+import ConfigCartoes from "@/components/ConfigCartoes";
 import ConfirmarModal from "@/components/ConfirmarModal";
 import AcertoContas from "@/components/AcertoContas";
 import Aviso from "@/components/Aviso";
@@ -26,6 +27,7 @@ export default function PainelContas({ usuario, onSair }) {
   const [mes, setMes] = useState(somarMeses(mesCorrente(), 1));
   const [lista, setLista] = useState([]);
   const [perfis, setPerfis] = useState([]);
+  const [cartoes, setCartoes] = useState([]);
   const [grupo, setGrupo] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [mostrarForm, setMostrarForm] = useState(false);
@@ -33,11 +35,13 @@ export default function PainelContas({ usuario, onSair }) {
   const [editando, setEditando] = useState(null);
   const [filtro, setFiltro] = useState(""); // id do usuário em foco (sempre alguém)
   const [mostrarConfig, setMostrarConfig] = useState(false);
+  const [mostrarConfigCartoes, setMostrarConfigCartoes] = useState(false);
   const [mostrarAcerto, setMostrarAcerto] = useState(false);
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState(""); // filtro por nome/valor (conforme digita)
-  const [ordenarPor, setOrdenarPor] = useState("recentes"); // "recentes" | "compra"
+  const [ordenarPor, setOrdenarPor] = useState("recentes"); // "recentes" | "compra" | "cartao"
+  const [cartoesAbertos, setCartoesAbertos] = useState({}); // grupos expandidos na visão por cartão
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
   const meuPerfil = perfis.find((p) => p.id === usuario.id);
@@ -45,6 +49,7 @@ export default function PainelContas({ usuario, onSair }) {
   // Pode lançar = admin ou pessoa liberada pelo admin (mexe só nas próprias).
   const podeLancar = ehAdmin || Boolean(meuPerfil?.pode_lancar);
   const nomePorId = Object.fromEntries(perfis.map((p) => [p.id, p.nome]));
+  const nomeCartaoPorId = Object.fromEntries(cartoes.map((c) => [c.id, c.nome]));
 
   // Recarrega a lista de perfis (usado após mudar permissões)
   const carregarPerfis = useCallback(() => {
@@ -53,13 +58,21 @@ export default function PainelContas({ usuario, onSair }) {
       .catch((e) => console.error(e));
   }, []);
 
-  // Carrega os perfis e o grupo uma vez
+  // Recarrega a lista de cartões (usado após cadastrar/remover)
+  const carregarCartoes = useCallback(() => {
+    listarCartoes()
+      .then(setCartoes)
+      .catch((e) => console.error(e));
+  }, []);
+
+  // Carrega os perfis, cartões e o grupo uma vez
   useEffect(() => {
     carregarPerfis();
+    carregarCartoes();
     obterGrupo()
       .then(setGrupo)
       .catch((e) => console.error(e));
-  }, [carregarPerfis]);
+  }, [carregarPerfis, carregarCartoes]);
 
   // Define a pessoa inicial assim que os perfis chegam: a própria pessoa
   // logada (se estiver na lista) ou a primeira. Sempre há alguém em foco.
@@ -179,6 +192,139 @@ export default function PainelContas({ usuario, onSair }) {
     return nome.includes(termoBusca) || valorTexto.includes(termoBusca);
   });
 
+  // Agrupamento por cartão: o admin SEMPRE vê agrupado (quando há cartões
+  // cadastrados), inclusive ao olhar a aba de outra pessoa. Cada grupo mostra o
+  // subtotal — para bater com a fatura no fim do mês. Outros usuários veem a
+  // lista normal, cada lançamento por linha.
+  const agruparPorCartao = ehAdmin && cartoes.length > 0;
+  const gruposCartao = [];
+  if (agruparPorCartao) {
+    const mapa = new Map(); // cartao_id (ou "") -> itens
+    for (const l of listaExibida) {
+      const chave = l.cartao_id || "";
+      if (!mapa.has(chave)) mapa.set(chave, []);
+      mapa.get(chave).push(l);
+    }
+    for (const [chave, itens] of mapa) {
+      const subtotal = itens
+        .filter((l) => l.tipo === "despesa")
+        .reduce((s, l) => s + Number(l.valor), 0);
+      gruposCartao.push({
+        chave,
+        nome: chave ? nomeCartaoPorId[chave] || "Cartão" : "Sem cartão / Outros",
+        semCartao: !chave,
+        itens,
+        subtotal,
+      });
+    }
+    // Cartões em ordem alfabética; "Sem cartão / Outros" sempre por último
+    gruposCartao.sort((a, b) => {
+      if (a.semCartao !== b.semCartao) return a.semCartao ? 1 : -1;
+      return a.nome.localeCompare(b.nome, "pt-BR");
+    });
+  }
+
+  // Um lançamento (usado tanto na lista normal quanto agrupada por cartão)
+  function renderItem(l) {
+    const ehMinha = l.responsavel_id === usuario.id;
+    const euCriei = l.criado_por === usuario.id;
+    const podeFixar = ehAdmin || ehMinha;
+    const podeMexer = ehAdmin || (podeLancar && euCriei);
+    return (
+      <div
+        key={l.id}
+        className={`flex items-center justify-between rounded-xl border bg-white px-4 py-3 dark:bg-zinc-900 ${
+          l.fixado
+            ? "border-amber-300 dark:border-amber-800"
+            : "border-zinc-200 dark:border-zinc-800"
+        }`}
+      >
+        <div className="min-w-0">
+          <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">
+            {l.descricao}
+          </p>
+          <p className="flex flex-wrap gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
+            <span>{formatarDataBR(l.data)}</span>
+            {l.responsavel_id && nomePorId[l.responsavel_id] && (
+              <span>• {nomePorId[l.responsavel_id]}</span>
+            )}
+            {/* Mostra o cartão na linha só fora da visão agrupada (lá já é o título) */}
+            {!agruparPorCartao && l.cartao_id && nomeCartaoPorId[l.cartao_id] && (
+              <span>• 💳 {nomeCartaoPorId[l.cartao_id]}</span>
+            )}
+            {l.forma === "parcelada" && (
+              <span>
+                • parcela {l.parcela_atual}/{l.parcela_total}
+              </span>
+            )}
+            {l.forma === "recorrente" && <span>• recorrente</span>}
+            {l.tipo === "despesa" && Number(l.valor) < 0 && <span>• reembolso</span>}
+            {l.nao_transferir && (
+              <span className="font-medium text-amber-600 dark:text-amber-400">
+                • fica na conta (não soma ao saldo)
+              </span>
+            )}
+            {contagemRepetidos[chaveRepetido(l)] > 1 && (
+              <span className="font-medium text-amber-600 dark:text-amber-400">
+                • ⚠️ possível repetido
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-3 pl-3">
+          <span
+            className={`font-semibold ${
+              l.tipo === "receita" || Number(l.valor) < 0
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-rose-600 dark:text-rose-400"
+            }`}
+          >
+            {l.tipo === "receita" || Number(l.valor) < 0 ? "+" : "−"}{" "}
+            {formatarReais(Math.abs(Number(l.valor)))}
+          </span>
+          {/* Fixar: admin ou dono da conta. Editar/apagar: admin ou quem CRIOU. */}
+          {podeFixar && (
+            <button
+              onClick={() => alternarFixado(l)}
+              className={`transition-colors ${
+                l.fixado
+                  ? "opacity-100"
+                  : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
+              }`}
+              aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
+              title={l.fixado ? "Desafixar" : "Fixar no topo"}
+            >
+              📌
+            </button>
+          )}
+          {podeMexer && (
+            <>
+              <button
+                onClick={() => {
+                  setMostrarForm(false);
+                  setEditando(l);
+                }}
+                className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                aria-label="Editar"
+                title="Editar"
+              >
+                ✏️
+              </button>
+              <button
+                onClick={() => setAExcluir(l)}
+                className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
+                aria-label="Apagar"
+                title="Apagar"
+              >
+                🗑️
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <main className="mx-auto flex w-full max-w-lg flex-1 flex-col gap-5 px-4 py-6">
       {/* Cabeçalho */}
@@ -202,6 +348,16 @@ export default function PainelContas({ usuario, onSair }) {
               title="Acerto de contas (quanto transferir)"
             >
               🧮
+            </button>
+          )}
+          {ehAdmin && (
+            <button
+              onClick={() => setMostrarConfigCartoes(true)}
+              className="rounded-lg p-1.5 text-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+              aria-label="Meus cartões"
+              title="Meus cartões"
+            >
+              💳
             </button>
           )}
           {ehAdmin && (
@@ -479,12 +635,25 @@ export default function PainelContas({ usuario, onSair }) {
         </Modal>
       )}
 
+      {/* Modal: meus cartões (só admin) */}
+      {ehAdmin && mostrarConfigCartoes && (
+        <Modal onClose={() => setMostrarConfigCartoes(false)}>
+          <ConfigCartoes
+            cartoes={cartoes}
+            onMudou={carregarCartoes}
+            onFechar={() => setMostrarConfigCartoes(false)}
+          />
+        </Modal>
+      )}
+
       {/* Modal: novo lançamento */}
       {podeLancar && mostrarForm && (
         <Modal onClose={() => setMostrarForm(false)}>
           <FormNovoLancamento
             mesReferencia={mes}
             perfis={perfis}
+            cartoes={cartoes}
+            mostrarCartao={ehAdmin}
             usuarioId={usuario.id}
             existentes={lista}
             responsavelPadrao={filtro || usuario.id}
@@ -506,6 +675,8 @@ export default function PainelContas({ usuario, onSair }) {
             key={editando.id}
             lancamento={editando}
             perfis={perfis}
+            cartoes={cartoes}
+            mostrarCartao={ehAdmin}
             usuarioId={usuario.id}
             travarResponsavel={!ehAdmin}
             mostrarNaoTransferir={ehAdmin}
@@ -525,6 +696,8 @@ export default function PainelContas({ usuario, onSair }) {
             mesReferencia={mes}
             existentes={lista}
             perfis={perfis}
+            cartoes={cartoes}
+            mostrarCartao={ehAdmin}
             usuarioId={usuario.id}
             responsavelPadrao={filtro || usuario.id}
             travarResponsavel={!ehAdmin}
@@ -591,109 +764,44 @@ export default function PainelContas({ usuario, onSair }) {
           <p className="rounded-xl border border-dashed border-zinc-300 py-8 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
             Nenhum lançamento encontrado. 🔍
           </p>
+        ) : agruparPorCartao ? (
+          // Visão agrupada por cartão (só admin): cada cartão abre/fecha e mostra
+          // o subtotal, para comparar com a fatura no fim do mês.
+          <div className="flex flex-col gap-2">
+            {gruposCartao.map((g) => {
+              const aberto = Boolean(cartoesAbertos[g.chave]);
+              return (
+                <div key={g.chave || "sem"} className="flex flex-col gap-2">
+                  <button
+                    onClick={() =>
+                      setCartoesAbertos((a) => ({ ...a, [g.chave]: !a[g.chave] }))
+                    }
+                    className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:bg-zinc-800/60"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span className="text-zinc-400">{aberto ? "▾" : "▸"}</span>
+                      <span className="truncate font-semibold text-zinc-900 dark:text-zinc-50">
+                        {g.semCartao ? "🧾" : "💳"} {g.nome}
+                      </span>
+                      <span className="shrink-0 text-xs text-zinc-400">
+                        ({g.itens.length})
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-semibold text-rose-600 dark:text-rose-400">
+                      {formatarReais(g.subtotal)}
+                    </span>
+                  </button>
+                  {aberto && (
+                    <div className="flex flex-col gap-2 pl-3">
+                      {g.itens.map(renderItem)}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ) : (
-          listaExibida.map((l) => (
-            <div
-              key={l.id}
-              className={`flex items-center justify-between rounded-xl border bg-white px-4 py-3 dark:bg-zinc-900 ${
-                l.fixado
-                  ? "border-amber-300 dark:border-amber-800"
-                  : "border-zinc-200 dark:border-zinc-800"
-              }`}
-            >
-              <div className="min-w-0">
-                <p className="truncate font-medium text-zinc-900 dark:text-zinc-50">
-                  {l.descricao}
-                </p>
-                <p className="flex flex-wrap gap-x-2 text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>{formatarDataBR(l.data)}</span>
-                  {l.responsavel_id && nomePorId[l.responsavel_id] && (
-                    <span>• {nomePorId[l.responsavel_id]}</span>
-                  )}
-                  {l.forma === "parcelada" && (
-                    <span>
-                      • parcela {l.parcela_atual}/{l.parcela_total}
-                    </span>
-                  )}
-                  {l.forma === "recorrente" && <span>• recorrente</span>}
-                  {l.tipo === "despesa" && Number(l.valor) < 0 && (
-                    <span>• reembolso</span>
-                  )}
-                  {l.nao_transferir && (
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      • fica na conta (não soma ao saldo)
-                    </span>
-                  )}
-                  {contagemRepetidos[chaveRepetido(l)] > 1 && (
-                    <span className="font-medium text-amber-600 dark:text-amber-400">
-                      • ⚠️ possível repetido
-                    </span>
-                  )}
-                </p>
-              </div>
-              <div className="flex shrink-0 items-center gap-3 pl-3">
-                <span
-                  className={`font-semibold ${
-                    l.tipo === "receita" || Number(l.valor) < 0
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-rose-600 dark:text-rose-400"
-                  }`}
-                >
-                  {l.tipo === "receita" || Number(l.valor) < 0 ? "+" : "−"}{" "}
-                  {formatarReais(Math.abs(Number(l.valor)))}
-                </span>
-                {/* Fixar: admin ou dono da conta. Editar/apagar: admin ou quem
-                    CRIOU o lançamento (não basta estar no nome da pessoa). */}
-                {(() => {
-                  const ehMinha = l.responsavel_id === usuario.id;
-                  const euCriei = l.criado_por === usuario.id;
-                  const podeFixar = ehAdmin || ehMinha;
-                  const podeMexer = ehAdmin || (podeLancar && euCriei);
-                  return (
-                    <>
-                      {podeFixar && (
-                        <button
-                          onClick={() => alternarFixado(l)}
-                          className={`transition-colors ${
-                            l.fixado
-                              ? "opacity-100"
-                              : "opacity-30 grayscale hover:opacity-100 hover:grayscale-0"
-                          }`}
-                          aria-label={l.fixado ? "Desafixar" : "Fixar no topo"}
-                          title={l.fixado ? "Desafixar" : "Fixar no topo"}
-                        >
-                          📌
-                        </button>
-                      )}
-                      {podeMexer && (
-                        <>
-                          <button
-                            onClick={() => {
-                              setMostrarForm(false);
-                              setEditando(l);
-                            }}
-                            className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
-                            aria-label="Editar"
-                            title="Editar"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => setAExcluir(l)}
-                            className="text-zinc-400 transition-colors hover:text-rose-600 dark:hover:text-rose-400"
-                            aria-label="Apagar"
-                            title="Apagar"
-                          >
-                            🗑️
-                          </button>
-                        </>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-            </div>
-          ))
+          listaExibida.map(renderItem)
         )}
       </section>
 

@@ -248,6 +248,50 @@ using (
   and (public.sou_admin() or criado_por = auth.uid())
 );
 
+-- ----------------------------------------------------------------------------
+-- 9) CARTÕES / MEIOS DE PAGAMENTO (cada família cadastra os seus)
+-- ----------------------------------------------------------------------------
+-- Permite marcar em cada lançamento qual cartão/meio foi usado (Nubank, Itaú,
+-- Pix, Dinheiro...) e agrupar as contas por cartão. Só o admin cadastra.
+create table if not exists public.cartoes (
+  id         uuid primary key default gen_random_uuid(),
+  nome       text not null,
+  grupo_id   uuid references public.grupos(id),
+  created_at timestamptz not null default now()
+);
+alter table public.cartoes enable row level security;
+
+-- Define a família automaticamente ao inserir um cartão
+create or replace function public.definir_grupo_cartao()
+returns trigger language plpgsql security definer as $$
+begin
+  if new.grupo_id is null then
+    new.grupo_id := public.meu_grupo();
+  end if;
+  return new;
+end; $$;
+
+drop trigger if exists ao_inserir_cartao on public.cartoes;
+create trigger ao_inserir_cartao
+  before insert on public.cartoes
+  for each row execute function public.definir_grupo_cartao();
+
+-- Todos da família leem; só o admin cria/edita/apaga
+drop policy if exists "cartoes leitura" on public.cartoes;
+create policy "cartoes leitura" on public.cartoes
+  for select to authenticated using (grupo_id = public.meu_grupo());
+
+drop policy if exists "cartoes admin escreve" on public.cartoes;
+create policy "cartoes admin escreve" on public.cartoes
+  for all to authenticated
+  using (public.sou_admin() and grupo_id = public.meu_grupo())
+  with check (public.sou_admin() and grupo_id = public.meu_grupo());
+
+-- Liga o lançamento ao cartão (apagar o cartão só deixa a conta "sem cartão")
+alter table public.lancamentos
+  add column if not exists cartao_id uuid references public.cartoes(id) on delete set null;
+
+
 -- ============================================================================
 -- FIM. Agora desative "Confirm email" e cadastre-se com o código mestre.
 -- ============================================================================

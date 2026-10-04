@@ -17,9 +17,13 @@ ou EXTRATO DE CONTA CORRENTE (conta bancária) — como imagem, PDF ou texto (CS
 Extraia TODAS as movimentações de dinheiro: tanto SAÍDAS (gastos) quanto ENTRADAS.
 
 Responda SOMENTE com um JSON válido neste formato exato:
-{"lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"tipo":"despesa","reembolso":false,"desmarcar":false,"observacao":"","parcela_atual":null,"parcela_total":null}]}
+{"cartao":"","lancamentos":[{"data":"AAAA-MM-DD","descricao":"texto curto","valor":123.45,"tipo":"despesa","reembolso":false,"desmarcar":false,"observacao":"","parcela_atual":null,"parcela_total":null}]}
 
 Regras:
+- "cartao": o nome do BANCO ou do CARTÃO que emitiu o documento, se der para
+  identificar pelo cabeçalho/logo/texto (ex.: "Nubank", "Itaú", "Bradesco",
+  "Caixa", "Inter", "C6", "Santander"). Use um nome curto e só a marca. Se não
+  der para saber, use "". Isso vale para o documento inteiro.
 - "valor" é sempre um número POSITIVO em reais (ex.: 71.90), sem "R$" e sem sinal.
 - "tipo": "despesa" quando o dinheiro SAI (compra, pagamento, boleto, débito, PIX enviado,
   prestação de empréstimo, tarifa, conta de água/luz/internet). "receita" quando o dinheiro
@@ -30,8 +34,9 @@ Regras:
 - PARCELAMENTO: se a linha indicar parcela X de Y, preencha "parcela_atual" (X, sem zeros à
   esquerda) e "parcela_total" (Y). Vale tanto para CARTÃO (ex.: "PARC 03/10", "3/10",
   "Parcela 3 de 10") quanto para EMPRÉSTIMO/PRESTAÇÃO (ex.: "PREST.EMPREST 021/048" = parcela
-  21 de 48; "016/030" = 16 de 30). O "valor" é o de UMA parcela. NÃO confunda com datas
-  ("06/07" é dia/mês, não parcela). Se não for parcelado, use null nos dois.
+  21 de 48; "016/030" = 16 de 30). Também vale o rótulo "Parcelado: X/Y" (ex.: "Parcelado: 2/12"
+  = parcela 2 de 12). O "valor" é o de UMA parcela. NÃO confunda com datas ("06/07" é dia/mês,
+  não parcela). Se não for parcelado, use null nos dois.
 - "desmarcar": true quando o item PROVAVELMENTE não deve entrar na conta do mês, mas você o
   extrai mesmo assim para o usuário decidir. Casos típicos: PAGAMENTO DE FATURA DE CARTÃO
   (ex.: "PGT.FATURA CARTAO"), TOTAL/SALDO DA FATURA ANTERIOR do cartão, transferência entre
@@ -41,7 +46,10 @@ Regras:
   "desmarcar":false e "observacao":"".
 - IGNORE (não devolva): SALDO de conta corrente (saldo anterior/inicial/final da conta),
   limites, e os TOTAIS DA FATURA ATUAL (ex.: "total desta fatura", "total a pagar", "subtotal")
-  — pois esses são a SOMA das compras que você já listou.
+  — pois esses são a SOMA das compras que você já listou. IGNORE também os SUBTOTAIS por
+  titular/portador do cartão (ex.: uma linha com o NOME DA PESSOA e os 4 dígitos do cartão
+  seguida de um valor, tipo "FULANO DE TAL (9348) R$ 133,80", ou "OUTROS LANÇAMENTOS (9348)
+  R$ 309,90"): são agrupadores, não compras.
 - Não invente nada. Se não conseguir ler, devolva {"lancamentos":[]}.`;
 
 export async function POST(request) {
@@ -137,7 +145,10 @@ export async function POST(request) {
       resultado = { lancamentos: [] };
     }
 
-    return Response.json({ lancamentos: resultado.lancamentos ?? [] });
+    return Response.json({
+      lancamentos: resultado.lancamentos ?? [],
+      cartao: typeof resultado.cartao === "string" ? resultado.cartao : "",
+    });
   } catch (e) {
     return Response.json(
       { erro: e.message ?? "Falha ao processar a imagem." },

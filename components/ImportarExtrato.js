@@ -8,6 +8,7 @@ import {
   paraNumero,
   formatarComoMoeda,
   ajustarAnoPorReferencia,
+  semAcento,
 } from "@/lib/formato";
 
 const campo =
@@ -88,17 +89,33 @@ function valorMascara(n) {
   return formatarComoMoeda(String(Math.round(Number(n) * 100)));
 }
 
-// "Impressão digital" de um lançamento, para reconhecer repetidos:
-// mesma data + mesmo valor + mesma descrição.
-function chaveDedup(descricao, valor, data) {
-  const desc = String(descricao).trim().toLowerCase();
-  return `${String(data).slice(0, 10)}|${Number(valor).toFixed(2)}|${desc}`;
+// Dois nomes "parecem" o mesmo lançamento? Compara sem acento/maiúsculas e
+// ignorando pontuação (ex.: "Uber" x "*UBE HELPING"). Considera parecido quando
+// um contém o outro, ou quando compartilham um "pedaço" de 3+ letras (prefixo).
+function nomesParecidos(a, b) {
+  const limpa = (t) =>
+    semAcento(t).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const na = limpa(a);
+  const nb = limpa(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const toks = (s) => s.split(" ").filter((t) => t.length >= 3);
+  for (const x of toks(na)) {
+    for (const y of toks(nb)) {
+      const curto = x.length <= y.length ? x : y;
+      const longo = x.length <= y.length ? y : x;
+      if (longo.startsWith(curto)) return true; // "ube" casa com "uber"
+    }
+  }
+  return false;
 }
 
 export default function ImportarExtrato({
   mesReferencia,
   existentes,
   perfis = [],
+  cartoes = [], // cartões cadastrados (um print = um cartão, escolhido em cima)
+  mostrarCartao = false, // só o admin mexe com cartão
   usuarioId,
   responsavelPadrao, // pessoa em foco na tela (padrão dos itens lidos)
   travarResponsavel = false, // não-admin: tudo entra no nome dele mesmo
@@ -110,6 +127,8 @@ export default function ImportarExtrato({
   const [erro, setErro] = useState(null);
   const [itens, setItens] = useState(null); // null = ainda não leu
   const [salvando, setSalvando] = useState(false);
+  const [cartaoId, setCartaoId] = useState(""); // cartão de TODOS os itens do print
+  const [cartaoSugerido, setCartaoSugerido] = useState(""); // nome achado pela IA sem cadastro
 
   // Permite CANCELAR o pedido à IA se a tela for fechada no meio da leitura.
   const controladorRef = useRef(null);
@@ -120,7 +139,21 @@ export default function ImportarExtrato({
   }, []);
 
   // Transforma a resposta da IA em itens revisáveis (com marcação de repetidos).
-  function processarLidos(lancamentos) {
+  function processarLidos(lancamentos, cartaoNome) {
+    // A IA tenta identificar o cartão do documento. Se bater com um cadastrado,
+    // já deixamos selecionado; se achar um nome que não existe, só avisamos.
+    if (mostrarCartao) {
+      const sugestao = semAcento(String(cartaoNome || "").trim());
+      if (sugestao) {
+        const achado = (cartoes || []).find((c) => {
+          const n = semAcento(c.nome);
+          return n && (n.includes(sugestao) || sugestao.includes(n));
+        });
+        setCartaoSugerido(String(cartaoNome).trim());
+        if (achado) setCartaoId(achado.id);
+      }
+    }
+
     const respPadrao = responsavelPadrao ?? usuarioId ?? perfis[0]?.id ?? "";
     const lidos = (lancamentos || []).map((l) => {
       const ehReceita = l.tipo === "receita";
@@ -142,22 +175,28 @@ export default function ImportarExtrato({
       };
     });
 
-    // Marca os que já existem no mês (mesma data + valor + descrição).
-    // Usa contagem, para o caso de haver itens realmente iguais repetidos.
-    const contagem = {};
-    for (const e of existentes || []) {
-      const k = chaveDedup(e.descricao, e.valor, e.data);
-      contagem[k] = (contagem[k] || 0) + 1;
-    }
+    // Marca os que JÁ PARECEM lançados: mesmo VALOR + nome parecido (ignora de
+    // quem é e a data). Ex.: já existe "Uber 33,40" e no print vem "*UBE HELPING
+    // 33,40" → marca como já lançado. O usuário confere e desmarca se não for.
+    // Cada existente só casa com UM item lido (para repetidos reais aparecerem).
+    const existentesDisp = (existentes || [])
+      .filter((e) => !e.terceiro)
+      .map((e) => ({
+        valor: Math.abs(Number(e.valor)).toFixed(2),
+        desc: e.descricao || "",
+        usado: false,
+      }));
     const comDedup = lidos.map((it) => {
-      const assinado = it.reembolso ? -it.valor : it.valor;
-      const k = chaveDedup(it.descricao, assinado, it.data);
+      const val = Math.abs(Number(it.valor)).toFixed(2);
+      const achado = existentesDisp.find(
+        (e) => !e.usado && e.valor === val && nomesParecidos(e.desc, it.descricao)
+      );
       let jaExiste = false;
-      if (contagem[k] > 0) {
+      if (achado) {
         jaExiste = true;
-        contagem[k] -= 1;
+        achado.usado = true;
       }
-      // Vem desmarcado se já existe, ou se a IA sugeriu desmarcar
+      // Vem desmarcado se já parece lançado, ou se a IA sugeriu desmarcar
       return { ...it, jaExiste, incluir: !jaExiste && !it.desmarcar };
     });
 
@@ -186,7 +225,7 @@ export default function ImportarExtrato({
       });
       const dados = await resposta.json();
       if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
-      processarLidos(dados.lancamentos || []);
+      processarLidos(dados.lancamentos || [], dados.cartao);
     } catch (e) {
       // Se foi cancelado (tela fechada), não é erro — apenas ignoramos.
       if (e.name !== "AbortError") setErro(e.message);
@@ -247,6 +286,8 @@ export default function ImportarExtrato({
           valor: it.reembolso ? -it.valor : it.valor,
           data: it.data,
           responsavel_id: it.responsavel_id || null,
+          // Todos os itens do print entram no mesmo cartão (escolhido em cima).
+          cartao_id: mostrarCartao ? cartaoId || null : null,
           // Parcelamento só para gasto comum (nem receita, nem reembolso)
           parcela_atual: ehReceita || it.reembolso ? null : it.parcela_atual,
           parcela_total: ehReceita || it.reembolso ? null : it.parcela_total,
@@ -366,6 +407,38 @@ export default function ImportarExtrato({
             )}
             Confira, marque de quem é e o tipo (gasto, entrada ou reembolso) e ajuste o que quiser.
           </p>
+
+          {/* Cartão de TODOS os itens deste print (um print = um cartão) */}
+          {mostrarCartao && (
+            <label className="flex flex-col gap-1 rounded-xl border border-sky-200 bg-sky-50/50 p-3 dark:border-sky-900/50 dark:bg-sky-950/20">
+              <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                💳 Cartão destes lançamentos
+              </span>
+              <select
+                value={cartaoId}
+                onChange={(e) => setCartaoId(e.target.value)}
+                className={campo}
+              >
+                <option value="">Sem cartão / Outros</option>
+                {cartoes.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+              {cartaoSugerido && cartaoId && (
+                <span className="text-xs text-emerald-600 dark:text-emerald-400">
+                  Cartão identificado pela IA: “{cartaoSugerido}”.
+                </span>
+              )}
+              {cartaoSugerido && !cartaoId && (
+                <span className="text-xs text-amber-600 dark:text-amber-400">
+                  A IA achou que é “{cartaoSugerido}”, mas não está cadastrado. Cadastre em
+                  💳 Meus cartões e selecione aqui.
+                </span>
+              )}
+            </label>
+          )}
 
           <div className="flex flex-col gap-3">
             {itens.map((it, i) => (
