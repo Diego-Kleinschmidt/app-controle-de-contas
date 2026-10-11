@@ -85,30 +85,27 @@ export async function POST(request) {
       generationConfig: { responseMimeType: "application/json" },
     };
 
-    // Quando a IA está sobrecarregada (503/500), tentamos de novo algumas vezes
-    // sozinhos, com uma pausa crescente entre as tentativas. Assim o usuário não
-    // precisa reenviar o print na mão.
-    // A Vercel corta a função em ~60s; guardamos um PRAZO com folga para SEMPRE
-    // conseguir responder em JSON (em vez de deixar a Vercel devolver erro em texto,
-    // que quebrava o app). Também damos um tempo-limite POR CHAMADA, para uma
-    // chamada lenta da IA não travar tudo.
+    // Estratégia de tentativas:
+    // O modelo principal vive sobrecarregado (503) no plano grátis, enquanto o
+    // reserva responde rápido. Então, a cada RONDA, tentamos CADA modelo UMA vez,
+    // na ordem — se o principal der 503, caímos NA HORA pro reserva (sem ficar
+    // insistindo no que está fora, que era o que causava a demora). Só se TODOS
+    // falharem é que esperamos um pouquinho e fazemos outra ronda.
+    // A Vercel corta a função em ~60s; um PRAZO com folga garante resposta em JSON,
+    // e um tempo-limite POR CHAMADA evita que uma chamada lenta trave tudo.
     const espera = (ms) => new Promise((r) => setTimeout(r, ms));
-    const TENTATIVAS = 4;
-    const PAUSAS = [1500, 3000, 5000]; // pausa antes de cada nova tentativa
+    const RONDAS = 3;
+    const PAUSA_RONDA = 1500; // espera entre rondas (só quando todos falharam)
     const INICIO = Date.now();
     const LIMITE_MS = 50000; // folga antes do corte da Vercel (maxDuration = 60s)
     const restante = () => LIMITE_MS - (Date.now() - INICIO);
 
     let resposta = null;
-    // Tenta cada modelo em ordem. Se um estourar o limite (429) ou ficar
-    // sobrecarregado, passa automaticamente para o próximo (cota separada).
-    for (const modelo of MODELOS) {
-      if (restante() <= 2000) break; // sem tempo para outra tentativa
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
-
-      for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa++) {
+    for (let ronda = 1; ronda <= RONDAS; ronda++) {
+      for (const modelo of MODELOS) {
         const porChamada = Math.min(restante(), 30000);
-        if (porChamada <= 2000) break;
+        if (porChamada <= 2000) break; // sem tempo para outra tentativa
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
         try {
           resposta = await fetch(url, {
             method: "POST",
@@ -117,23 +114,16 @@ export async function POST(request) {
             signal: AbortSignal.timeout(porChamada),
           });
         } catch {
-          // Tempo-limite estourado ou falha de rede nesta tentativa → tenta de novo
-          resposta = null;
+          resposta = null; // timeout/rede → tenta o próximo modelo
         }
-
-        // Deu certo, ou é um erro que não adianta repetir → sai do laço interno
-        const valeRepetir = !resposta || resposta.status === 503 || resposta.status === 500;
-        if ((resposta && resposta.ok) || !valeRepetir || tentativa === TENTATIVAS) break;
-        if (restante() <= 2000) break; // não dá tempo de esperar e tentar de novo
-
+        if (resposta && resposta.ok) break; // sucesso
         console.warn(
-          `Gemini "${modelo}" indisponível (${resposta ? resposta.status : "timeout"}). Tentativa ${tentativa}/${TENTATIVAS}, aguardando…`
+          `Gemini "${modelo}" indisponível (${resposta ? resposta.status : "timeout"}), ronda ${ronda}. Próximo…`
         );
-        await espera(PAUSAS[tentativa - 1] ?? 5000);
       }
-
-      if (resposta && resposta.ok) break; // funcionou com este modelo
-      console.warn(`Modelo "${modelo}" indisponível. Tentando o próximo…`);
+      if (resposta && resposta.ok) break;
+      if (restante() <= PAUSA_RONDA + 2000) break; // sem tempo para outra ronda
+      await espera(PAUSA_RONDA);
     }
 
     // Nenhuma resposta (timeout/rede): devolve JSON amigável antes do corte da Vercel.
