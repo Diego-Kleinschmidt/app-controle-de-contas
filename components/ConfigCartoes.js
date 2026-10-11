@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { criarCartao, apagarCartao } from "@/lib/lancamentos";
+import { criarCartao, apagarCartao, renomearCartao } from "@/lib/lancamentos";
 
 // Tela (dentro de um modal) onde o admin cadastra e remove os cartões/meios
 // de pagamento da família (Nubank, Itaú, Pix, Dinheiro...). Depois é só escolher
@@ -10,6 +10,8 @@ export default function ConfigCartoes({ cartoes = [], onFechar, onMudou }) {
   const [novo, setNovo] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [apagandoId, setApagandoId] = useState(null);
+  const [editandoId, setEditandoId] = useState(null); // cartão em edição de nome
+  const [nomeEdit, setNomeEdit] = useState("");
   const [erro, setErro] = useState(null);
 
   async function adicionar(evento) {
@@ -26,6 +28,38 @@ export default function ConfigCartoes({ cartoes = [], onFechar, onMudou }) {
     try {
       await criarCartao(nome);
       setNovo("");
+      onMudou?.();
+    } catch (e) {
+      setErro(e.message ?? "Não foi possível salvar.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  function iniciarEdicao(c) {
+    setErro(null);
+    setEditandoId(c.id);
+    setNomeEdit(c.nome);
+  }
+
+  async function salvarEdicao(c) {
+    const nome = nomeEdit.trim();
+    if (!nome) return;
+    // Não deixa dois cartões com o mesmo nome (ignorando o próprio)
+    if (
+      cartoes.some(
+        (x) => x.id !== c.id && x.nome.trim().toLowerCase() === nome.toLowerCase()
+      )
+    ) {
+      setErro("Já existe um cartão com esse nome.");
+      return;
+    }
+    setErro(null);
+    setSalvando(true);
+    try {
+      await renomearCartao(c.id, nome);
+      setEditandoId(null);
+      setNomeEdit("");
       onMudou?.();
     } catch (e) {
       setErro(e.message ?? "Não foi possível salvar.");
@@ -94,20 +128,69 @@ export default function ConfigCartoes({ cartoes = [], onFechar, onMudou }) {
           {cartoes.map((c) => (
             <div
               key={c.id}
-              className="flex items-center justify-between rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800"
+              className="flex items-center justify-between gap-2 rounded-xl border border-zinc-200 px-4 py-3 dark:border-zinc-800"
             >
-              <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">
-                💳 {c.nome}
-              </span>
-              <button
-                onClick={() => remover(c)}
-                disabled={apagandoId === c.id}
-                className="text-zinc-400 transition-colors hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
-                aria-label={`Apagar ${c.nome}`}
-                title="Apagar cartão"
-              >
-                🗑️
-              </button>
+              {editandoId === c.id ? (
+                <>
+                  <input
+                    type="text"
+                    value={nomeEdit}
+                    onChange={(e) => setNomeEdit(e.target.value)}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") salvarEdicao(c);
+                      if (e.key === "Escape") {
+                        setEditandoId(null);
+                        setErro(null);
+                      }
+                    }}
+                    className="w-full min-w-0 rounded-lg border border-zinc-300 bg-white px-2 py-1 text-zinc-900 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                  />
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      onClick={() => salvarEdicao(c)}
+                      disabled={salvando || !nomeEdit.trim()}
+                      className="rounded-lg bg-zinc-900 px-3 py-1 text-sm font-medium text-white disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-900"
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditandoId(null);
+                        setErro(null);
+                      }}
+                      className="text-sm text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">
+                    💳 {c.nome}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-3 pl-2">
+                    <button
+                      onClick={() => iniciarEdicao(c)}
+                      className="text-zinc-400 transition-colors hover:text-zinc-700 dark:hover:text-zinc-200"
+                      aria-label={`Editar ${c.nome}`}
+                      title="Editar nome"
+                    >
+                      ✏️
+                    </button>
+                    <button
+                      onClick={() => remover(c)}
+                      disabled={apagandoId === c.id}
+                      className="text-zinc-400 transition-colors hover:text-rose-600 disabled:opacity-50 dark:hover:text-rose-400"
+                      aria-label={`Apagar ${c.nome}`}
+                      title="Apagar cartão"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>

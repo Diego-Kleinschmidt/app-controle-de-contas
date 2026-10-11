@@ -413,7 +413,7 @@ export default function ImportarExtrato({
                 onChange={(e) => setCartaoId(e.target.value)}
                 className={campo}
               >
-                <option value="">Sem cartão / Outros</option>
+                <option value="">Diversos</option>
                 {cartoes.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nome}

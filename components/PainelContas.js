@@ -42,7 +42,14 @@ export default function PainelContas({ usuario, onSair }) {
   const [aExcluir, setAExcluir] = useState(null); // lançamento aguardando confirmação
   const [excluindo, setExcluindo] = useState(false);
   const [busca, setBusca] = useState(""); // filtro por nome/valor (conforme digita)
-  const [ordenarPor, setOrdenarPor] = useState("recentes"); // "recentes" | "compra" | "cartao"
+  // Ordenação escolhida fica guardada no aparelho (lembra na próxima vez).
+  const [ordenarPor, setOrdenarPor] = useState(() => {
+    try {
+      return localStorage.getItem("ordem-lancamentos") || "recentes";
+    } catch {
+      return "recentes";
+    }
+  });
   const [cartoesAbertos, setCartoesAbertos] = useState({}); // grupos expandidos na visão por cartão
 
   // Quem sou eu? Se meu perfil for admin, vejo tudo e posso administrar.
@@ -100,6 +107,13 @@ export default function PainelContas({ usuario, onSair }) {
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // Guarda no aparelho a ordenação escolhida, para lembrar na próxima vez.
+  useEffect(() => {
+    try {
+      localStorage.setItem("ordem-lancamentos", ordenarPor);
+    } catch {}
+  }, [ordenarPor]);
 
   // modo: "um" (só este) ou "serie" (todos da recorrência/parcelamento)
   async function confirmarExclusao(modo) {
@@ -213,7 +227,7 @@ export default function PainelContas({ usuario, onSair }) {
         .reduce((s, l) => s + Number(l.valor), 0);
       gruposCartao.push({
         chave,
-        nome: chave ? nomeCartaoPorId[chave] || "Cartão" : "Sem cartão / Outros",
+        nome: chave ? nomeCartaoPorId[chave] || "Cartão" : "Diversos",
         semCartao: !chave,
         itens,
         subtotal,
