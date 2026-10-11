@@ -88,36 +88,59 @@ export async function POST(request) {
     // Quando a IA está sobrecarregada (503/500), tentamos de novo algumas vezes
     // sozinhos, com uma pausa crescente entre as tentativas. Assim o usuário não
     // precisa reenviar o print na mão.
+    // A Vercel corta a função em ~60s; guardamos um PRAZO com folga para SEMPRE
+    // conseguir responder em JSON (em vez de deixar a Vercel devolver erro em texto,
+    // que quebrava o app). Também damos um tempo-limite POR CHAMADA, para uma
+    // chamada lenta da IA não travar tudo.
     const espera = (ms) => new Promise((r) => setTimeout(r, ms));
     const TENTATIVAS = 4;
     const PAUSAS = [1500, 3000, 5000]; // pausa antes de cada nova tentativa
+    const INICIO = Date.now();
+    const LIMITE_MS = 50000; // folga antes do corte da Vercel (maxDuration = 60s)
+    const restante = () => LIMITE_MS - (Date.now() - INICIO);
 
-    let resposta;
+    let resposta = null;
     // Tenta cada modelo em ordem. Se um estourar o limite (429) ou ficar
     // sobrecarregado, passa automaticamente para o próximo (cota separada).
     for (const modelo of MODELOS) {
+      if (restante() <= 2000) break; // sem tempo para outra tentativa
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`;
 
       for (let tentativa = 1; tentativa <= TENTATIVAS; tentativa++) {
-        resposta = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(corpo),
-        });
+        const porChamada = Math.min(restante(), 30000);
+        if (porChamada <= 2000) break;
+        try {
+          resposta = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(corpo),
+            signal: AbortSignal.timeout(porChamada),
+          });
+        } catch {
+          // Tempo-limite estourado ou falha de rede nesta tentativa → tenta de novo
+          resposta = null;
+        }
 
         // Deu certo, ou é um erro que não adianta repetir → sai do laço interno
-        const valeRepetir = resposta.status === 503 || resposta.status === 500;
-        if (resposta.ok || !valeRepetir || tentativa === TENTATIVAS) break;
+        const valeRepetir = !resposta || resposta.status === 503 || resposta.status === 500;
+        if ((resposta && resposta.ok) || !valeRepetir || tentativa === TENTATIVAS) break;
+        if (restante() <= 2000) break; // não dá tempo de esperar e tentar de novo
 
         console.warn(
-          `Gemini "${modelo}" sobrecarregado (${resposta.status}). Tentativa ${tentativa}/${TENTATIVAS}, aguardando…`
+          `Gemini "${modelo}" indisponível (${resposta ? resposta.status : "timeout"}). Tentativa ${tentativa}/${TENTATIVAS}, aguardando…`
         );
         await espera(PAUSAS[tentativa - 1] ?? 5000);
       }
 
-      if (resposta.ok) break; // funcionou com este modelo
-      console.warn(
-        `Modelo "${modelo}" indisponível (${resposta.status}). Tentando o próximo…`
+      if (resposta && resposta.ok) break; // funcionou com este modelo
+      console.warn(`Modelo "${modelo}" indisponível. Tentando o próximo…`);
+    }
+
+    // Nenhuma resposta (timeout/rede): devolve JSON amigável antes do corte da Vercel.
+    if (!resposta) {
+      return Response.json(
+        { erro: "A IA demorou demais para responder agora. Tente de novo em instantes." },
+        { status: 502 }
       );
     }
 

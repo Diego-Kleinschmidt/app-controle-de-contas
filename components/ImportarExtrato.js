@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { criarVarios } from "@/lib/lancamentos";
+import { lerExtratoIA } from "@/lib/leituraExtrato";
 import {
   formatarReais,
   hojeISO,
@@ -217,14 +218,7 @@ export default function ImportarExtrato({
     controladorRef.current = controlador;
     try {
       const envio = await preparar();
-      const resposta = await fetch("/api/ler-extrato", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(envio),
-        signal: controlador.signal,
-      });
-      const dados = await resposta.json();
-      if (!resposta.ok) throw new Error(dados.erro || "Não foi possível ler o extrato.");
+      const dados = await lerExtratoIA(envio, controlador.signal);
       processarLidos(dados.lancamentos || [], dados.cartao);
     } catch (e) {
       // Se foi cancelado (tela fechada), não é erro — apenas ignoramos.
